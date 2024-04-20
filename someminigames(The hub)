@@ -1,0 +1,97 @@
+import subprocess
+import pygame
+import sys
+
+# Initialize Pygame
+pygame.init()
+
+# Set up the screen
+WIDTH, HEIGHT = 800, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Click Rectangle to Open Mini Games")
+
+# Colors
+WHITE = (255, 255, 255)
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+BLACK = (0, 0, 0)
+
+# Define the rectangles and their labels
+rect1 = pygame.Rect(100, 200, 200, 100)
+rect2 = pygame.Rect(300, 200, 200, 100)
+rect3 = pygame.Rect(500, 200, 200, 100)
+rect4 = pygame.Rect(300, 350, 200, 100)  # New rectangle for snake.py
+
+# Define labels for the rectangles
+label1 = "Avoid the Enemies"
+label2 = "Maze"
+label3 = "Parkour"
+label4 = "Snake"  # Label for the new rectangle
+
+# Launch subprocesses for the games
+subprocesses = [
+    subprocess.Popen(['python', 'aviod_the_enimys.py']),
+    subprocess.Popen(['python', 'reallygoodmaze.py']),
+    subprocess.Popen(['python', 'parcore.py']),
+    subprocess.Popen(['python', 'snake.py'])
+]
+
+def draw_text(text, font, color, surface, rect):
+    text_surface = font.render(text, True, color)
+    text_rect = text_surface.get_rect(center=rect.center)
+    surface.blit(text_surface, text_rect)
+subprocesses[0].terminate()
+subprocesses[1].terminate()
+subprocesses[2].terminate()
+subprocesses[3].terminate()
+def main():
+    running = True
+
+    # Font for the labels
+    font = pygame.font.Font(None, 36)
+
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                # Check which rectangle is clicked
+                if rect1.collidepoint(event.pos):
+                    subprocesses[0].terminate()  # Terminate previous instance
+                    subprocesses[0] = subprocess.Popen(['python', 'aviod_the_enimys.py'])
+                elif rect2.collidepoint(event.pos):
+                    subprocesses[1].terminate()  # Terminate previous instance
+                    subprocesses[1] = subprocess.Popen(['python', 'reallygoodmaze.py'])
+                elif rect3.collidepoint(event.pos):
+                    subprocesses[2].terminate()  # Terminate previous instance
+                    subprocesses[2] = subprocess.Popen(['python', 'parcore.py'])
+                elif rect4.collidepoint(event.pos):
+                    subprocesses[3].terminate()  # Terminate previous instance
+                    subprocesses[3] = subprocess.Popen(['python', 'snake.py'])
+
+        # Clear the screen
+        screen.fill(WHITE)
+        
+        # Draw the rectangles
+        pygame.draw.rect(screen, RED, rect1)
+        pygame.draw.rect(screen, GREEN, rect2)
+        pygame.draw.rect(screen, BLUE, rect3)
+        pygame.draw.rect(screen, BLACK, rect4)  # New rectangle color
+
+        # Draw the labels
+        draw_text(label1, font, BLACK, screen, rect1)
+        draw_text(label2, font, BLACK, screen, rect2)
+        draw_text(label3, font, BLACK, screen, rect3)
+        draw_text(label4, font, WHITE, screen, rect4)  # New label color
+        
+        # Update the display
+        pygame.display.flip()
+
+    pygame.quit()
+    for process in subprocesses:
+        process.terminate()
+    sys.exit()
+
+if __name__ == "__main__":
+    main()
