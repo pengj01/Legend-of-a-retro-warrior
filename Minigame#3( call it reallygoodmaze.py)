@@ -1,0 +1,151 @@
+import pygame
+import sys
+import random
+
+# Initialize Pygame
+pygame.init()
+
+# Constants
+WIDTH, HEIGHT = 1200, 1200  # Increased window size
+FPS = 60
+
+# Colors
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 0, 0, 180)  # Reduced alpha for fog of war effect
+YELLOW = (255, 255, 0)
+
+# Player
+player_size = 20  # Smaller player size
+player_speed = 3  # Increased player speed
+
+# Maze
+maze_size = 40  # Increased maze cell count for a larger maze
+maze_cell_size = min(WIDTH // maze_size, HEIGHT // maze_size)  # Adjusted maze cell size
+
+# Visibility
+visibility_range = 3  # Visible area around the player
+
+# Create the screen
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("maze.py")
+
+# Player initial position
+player_x = WIDTH // 2 - player_size // 2
+player_y = HEIGHT - player_size - 10
+
+# Generate random maze using DFS algorithm
+def generate_maze():
+    maze = [[1] * maze_size for _ in range(maze_size)]
+    stack = [(1, 1)]  # Start from an internal point
+
+    while stack:
+        current = stack[-1]
+        x, y = current
+
+        neighbors = [(x + 2, y), (x - 2, y), (x, y + 2), (x, y - 2)]
+        unvisited_neighbors = [(nx, ny) for nx, ny in neighbors if 0 <= nx < maze_size and 0 <= ny < maze_size and maze[ny][nx] == 1]
+
+        if unvisited_neighbors:
+            nx, ny = random.choice(unvisited_neighbors)
+            maze[ny][nx] = 0
+            maze[y + (ny - y) // 2][x + (nx - x) // 2] = 0
+            stack.append((nx, ny))
+        else:
+            stack.pop()
+
+    return maze
+
+# Fixed Maze Layout
+fixed_maze = generate_maze()
+
+# Find an open cell for player spawn
+open_cells = [(col, row) for row in range(maze_size) for col in range(maze_size) if fixed_maze[row][col] == 0]
+player_spawn = random.choice(open_cells)
+
+# Player initial position
+player_x = player_spawn[0] * maze_cell_size
+player_y = player_spawn[1] * maze_cell_size
+
+# Find the exit position
+exit_position = random.choice(open_cells)
+
+# Main game loop
+clock = pygame.time.Clock()
+
+def draw_maze():
+    for row in range(maze_size):
+        for col in range(maze_size):
+            if fixed_maze[row][col] == 1:
+                pygame.draw.rect(screen, BLACK, (col * maze_cell_size, row * maze_cell_size, maze_cell_size, maze_cell_size))
+            else:
+                pygame.draw.rect(screen, WHITE, (col * maze_cell_size, row * maze_cell_size, maze_cell_size, maze_cell_size))
+
+# Check if the player is on the exit
+def is_on_exit():
+    player_col = player_x // maze_cell_size
+    player_row = player_y // maze_cell_size
+    return (player_col, player_row) == exit_position
+
+# Check if the player is colliding with maze walls
+def is_colliding_with_walls(x, y):
+    player_col = x // maze_cell_size
+    player_row = y // maze_cell_size
+    return fixed_maze[player_row][player_col] == 1
+
+while True:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+
+    keys = pygame.key.get_pressed()
+
+    # Attempt to move player
+    new_player_x, new_player_y = player_x, player_y
+
+    if keys[pygame.K_UP] and player_y > 0:
+        new_player_y -= player_speed
+    elif keys[pygame.K_DOWN] and player_y < HEIGHT - player_size:
+        new_player_y += player_speed
+    elif keys[pygame.K_LEFT] and player_x > 0:
+        new_player_x -= player_speed
+    elif keys[pygame.K_RIGHT] and player_x < WIDTH - player_size:
+        new_player_x += player_speed
+
+    # Check collision with maze walls
+    new_player_col = new_player_x // maze_cell_size
+    new_player_row = new_player_y // maze_cell_size
+
+    if 0 <= new_player_col < maze_size and 0 <= new_player_row < maze_size and not is_colliding_with_walls(new_player_x, new_player_y):
+        player_x, player_y = new_player_x, new_player_y
+
+    # Check if player reached the exit
+    if is_on_exit():
+        print("Congratulations! You reached the exit.")
+        pygame.quit()
+        sys.exit()
+
+    # Draw everything
+    screen.fill(BLACK)
+
+    # Draw visible area around the player
+    player_col = player_x // maze_cell_size
+    player_row = player_y // maze_cell_size
+
+    for row in range(max(0, player_row - visibility_range), min(maze_size, player_row + visibility_range + 1)):
+        for col in range(max(0, player_col - visibility_range), min(maze_size, player_col + visibility_range + 1)):
+            if fixed_maze[row][col] == 1:
+                pygame.draw.rect(screen, BLACK, (col * maze_cell_size, row * maze_cell_size, maze_cell_size, maze_cell_size))
+            else:
+                pygame.draw.rect(screen, WHITE, (col * maze_cell_size, row * maze_cell_size, maze_cell_size, maze_cell_size))
+
+    # Draw exit with yellow color
+    pygame.draw.rect(screen, YELLOW, (exit_position[0] * maze_cell_size, exit_position[1] * maze_cell_size, maze_cell_size, maze_cell_size))
+
+    pygame.draw.rect(screen, RED, (player_x, player_y, player_size, player_size))
+
+    pygame.display.flip()
+
+    # Cap the frame rate
+    clock.tick(FPS)
