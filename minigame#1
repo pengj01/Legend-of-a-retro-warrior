@@ -1,0 +1,214 @@
+import pygame
+import sys
+import random
+
+# Initialize Pygame
+pygame.init()
+
+# Constants
+WIDTH, HEIGHT = 800, 600
+FPS = 60
+
+# Colors
+WHITE = (255, 255, 255)
+RED = (255, 0, 0)
+BLUE = (0, 0, 255)
+EXPLOSION_COLOR = (255, 165, 0)  # Orange color for explosion
+
+# Player
+player_size = 50
+player_x = WIDTH // 2 - player_size // 2
+player_y = HEIGHT - player_size - 10
+player_speed = 8
+
+# Enemies
+num_enemies = 5
+enemies = []
+
+# Explosive Enemies
+num_explosive_enemies = 1
+explosive_enemies = []
+
+# Fading Enemies
+num_fading_enemies = 1
+fading_enemies = []
+
+# Explosions
+explosions = []
+
+# Create the screen
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("avoid_the_enimys.py")
+
+# Scoring
+score = 0
+font = pygame.font.Font(None, 36)
+
+# Main game loop
+clock = pygame.time.Clock()
+
+class FadingEnemy:
+    def __init__(self, x, y, size, speed, color):
+        self.x = x
+        self.y = y
+        self.size = size
+        self.speed = speed
+        self.color = color
+        self.alpha = 255  # Initial alpha value for fading
+        self.alpha_reduction_rate = 2  # Rate at which alpha is reduced
+
+    def update(self):
+        self.y += self.speed
+        self.alpha -= self.alpha_reduction_rate  # Reduce alpha gradually
+
+    def is_visible(self):
+        return self.alpha > 0
+
+def spawn_explosive_enemy():
+    enemy_size = 50
+    enemy_speed = random.uniform(2, 8)
+    explosive_enemies.append((random.randint(0, WIDTH - enemy_size), random.randint(-HEIGHT, 0), enemy_size, enemy_speed, EXPLOSION_COLOR))
+
+def spawn_explosion(x, y, size):
+    explosions.append((x, y, size))
+
+def handle_explosion(explosion_x, explosion_y, size):
+    # Handle explosion logic here
+    print("Explosion at ({}, {}) with size {}!".format(explosion_x, explosion_y, size))
+
+def spawn_fading_enemy():
+    enemy_size = 175
+    enemy_speed = random.uniform(3, 6)
+    fading_enemies.append(FadingEnemy(random.randint(0, WIDTH - enemy_size), random.randint(-HEIGHT, 0), enemy_size, enemy_speed, RED))
+
+while True:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_LEFT] and player_x > 0:
+        player_x -= player_speed
+    if keys[pygame.K_RIGHT] and player_x < WIDTH - player_size:
+        player_x += player_speed
+
+    # Move and update regular enemies
+    for i in range(len(enemies)):
+        enemies[i] = (enemies[i][0], enemies[i][1] + enemies[i][3], enemies[i][2], enemies[i][3], enemies[i][4])
+
+        # Wrap enemies around the screen if they go off the bottom
+        if enemies[i][1] > HEIGHT:
+            enemies[i] = (random.randint(0, WIDTH - enemies[i][2]), random.randint(-HEIGHT, 0), enemies[i][2], enemies[i][3], enemies[i][4])
+
+        # Collision detection with regular enemies
+        if (
+            player_x < enemies[i][0] + enemies[i][2]
+            and player_x + player_size > enemies[i][0]
+            and player_y < enemies[i][1] + enemies[i][2]
+            and player_y + player_size > enemies[i][1]
+        ):
+            print("Game Over! Score:", score)
+            pygame.quit()
+            sys.exit()
+
+    # Move and update explosive enemies
+    i = len(explosive_enemies) - 1  # Start from the last index
+    while i >= 0:
+        explosive_enemies[i] = (explosive_enemies[i][0], explosive_enemies[i][1] + explosive_enemies[i][3],
+                                explosive_enemies[i][2], explosive_enemies[i][3], explosive_enemies[i][4])
+
+        # Wrap explosive enemies around the screen if they go off the bottom
+        if explosive_enemies[i][1] > HEIGHT:
+            # Spawn an explosion at the current position with initial size
+            spawn_explosion(explosive_enemies[i][0] + explosive_enemies[i][2] // 2, HEIGHT - 20, 20)
+            # Remove the explosive enemy
+            explosive_enemies.pop(i)
+            # Increment the score
+            score += 10
+
+        i -= 1  # Move to the previous index
+
+    # Update fading enemies
+    i = len(fading_enemies) - 1  # Start from the last index
+    while i >= 0:
+        fading_enemies[i].update()
+
+        if not fading_enemies[i].is_visible():
+            fading_enemies.pop(i)
+            score += 5  # Increment the score when a fading enemy disappears
+
+        i -= 1
+
+    # Spawn new enemies
+    if random.randint(1, 100) == 1:
+        enemy_size = 50
+        enemy_speed = random.uniform(2, 8)
+        enemy_color = BLUE if random.choice(['slow', 'fast']) == 'slow' else (0, 128, 255)
+        enemy_x = random.randint(0, WIDTH - enemy_size)
+        enemy_y = random.randint(-HEIGHT, 0)
+
+        enemies.append((enemy_x, enemy_y, enemy_size, enemy_speed, enemy_color))
+
+    # Spawn new explosive enemies
+    if random.randint(1, 500) == 1:
+        spawn_explosive_enemy()
+
+    # Spawn new fading enemies
+    if random.randint(1, 300) == 1:
+        spawn_fading_enemy()
+
+    # Update explosions
+    i = len(explosions) - 1  # Start from the last index
+    while i >= 0:
+        # Increment the size of the explosion
+        explosions[i] = (explosions[i][0], explosions[i][1], explosions[i][2] + 4)
+        # Check if the explosion has reached a maximum size
+        if explosions[i][2] > 100:
+            # Remove the explosion
+            explosions.pop(i)
+
+        i -= 1  # Move to the previous index
+
+    # Check collision with explosions
+    for explosion in explosions:
+        if (
+            player_x < explosion[0] + explosion[2]
+            and player_x + player_size > explosion[0] - explosion[2]
+            and player_y < explosion[1] + explosion[2]
+            and player_y + player_size > explosion[1] - explosion[2]
+        ):
+            # Handle explosion hitting the player
+            print("Player hit by explosion! Game Over! Score:", score)
+            pygame.quit()
+            sys.exit()
+
+    # Increase score by 1 for every tick
+    score += 1
+
+    # Draw everything
+    screen.fill(WHITE)
+    pygame.draw.rect(screen, RED, (player_x, player_y, player_size, player_size))
+
+    for enemy in enemies:
+        pygame.draw.rect(screen, enemy[4], (enemy[0], enemy[1], enemy[2], enemy[2]))
+
+    for explosive_enemy in explosive_enemies:
+        pygame.draw.rect(screen, explosive_enemy[4], (explosive_enemy[0], explosive_enemy[1], explosive_enemy[2], explosive_enemy[2]))
+
+    for fading_enemy in fading_enemies:
+        color_with_alpha = fading_enemy.color + (fading_enemy.alpha,)
+        pygame.draw.rect(screen, color_with_alpha, (fading_enemy.x, fading_enemy.y, fading_enemy.size, fading_enemy.size))
+
+    for explosion in explosions:
+        # Draw the expanding explosion
+        pygame.draw.circle(screen, EXPLOSION_COLOR, (explosion[0], explosion[1]), explosion[2])
+
+    # Display score
+    score_text = font.render("Score: {}".format(score), True, (0, 0, 0))
+    screen.blit(score_text, (10, 10))
+
+    pygame.display.flip()
+
+    # Cap the frame rate
+    clock.tick(FPS)
