@@ -1,0 +1,182 @@
+import pygame
+import os
+import math
+import random
+pygame.init()
+SCREEN_WIDTH, SCREEN_HEIGHT = 900, 750
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("legend of a retro warrior onslaught mode")
+# Load player images
+player_up_img = pygame.image.load("playerupdefalt.jpg").convert_alpha()
+player_down_img = pygame.image.load("playerdowndefalt.png").convert_alpha()
+player_left_img = pygame.image.load("playerleftdefalt.png").convert_alpha()
+player_right_img = pygame.image.load("playerightdefalt.png").convert_alpha()
+score=0
+def show_death_screen():
+    # Fill the screen with a dark background color
+    screen.fill((0, 0, 0))
+    # Display death message
+    font = pygame.font.SysFont(None, 50)
+    text = font.render("You died!", True, (255, 0, 0))
+    text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+    screen.blit(text, text_rect)
+    text = font.render("Score: "+str(score), True, (255, 0, 0))
+    text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, (SCREEN_HEIGHT // 2) +text.get_height()))
+    screen.blit(text, text_rect)
+    # Update the display
+    pygame.display.flip()
+# Load blue cube image
+blue_cube_img = pygame.Surface((30, 30))
+blue_cube_img.fill((0, 0, 255))
+
+# Create player class
+class Player(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = player_down_img  # default image
+        self.rect = self.image.get_rect(center=(x, y))
+        self.speed = 5
+        self.last_attack_time = pygame.time.get_ticks()
+        self.attack_cooldown = 250  # milliseconds
+
+    def update(self):
+        pass  # No need for update here since we handle key presses outside
+
+    def move(self, keys):
+        if keys[pygame.K_w] and self.rect.top > 0:
+            self.image = player_up_img
+            self.rect.y -= self.speed
+        elif keys[pygame.K_s] and self.rect.bottom < SCREEN_HEIGHT:
+            self.image = player_down_img
+            self.rect.y += self.speed
+        elif keys[pygame.K_a] and self.rect.left > 0:
+            self.image = player_left_img
+            self.rect.x -= self.speed
+        elif keys[pygame.K_d] and self.rect.right < SCREEN_WIDTH:
+            self.image = player_right_img
+            self.rect.x += self.speed
+
+    def handle_attack(self):
+        current_time = pygame.time.get_ticks()
+        if pygame.key.get_pressed()[pygame.K_SPACE] and current_time - self.last_attack_time > self.attack_cooldown:
+            self.attack()
+            self.last_attack_time = current_time
+
+    def attack(self):
+        attack = Attack(self.rect.centerx, self.rect.centery, self.image)
+        all_sprites.add(attack)
+        attacks.add(attack)
+
+# Create attack class
+class Attack(pygame.sprite.Sprite):
+    def __init__(self, x, y, player_image):
+        super().__init__()
+        self.image = self.create_arc_image(player_image)
+        self.rect = self.image.get_rect(center=(x, y))
+        self.speed = 10
+        self.distance_traveled = 0
+
+    def update(self):
+        self.rect.x += self.speed * math.cos(self.angle)
+        self.rect.y += self.speed * math.sin(self.angle)
+        self.distance_traveled += self.speed
+        if self.distance_traveled >= 150:
+            self.kill()
+
+    def create_arc_image(self, player_image):
+            attack_surface = pygame.Surface((100, 100), pygame.SRCALPHA)
+            # Create an arc shape using pygame.draw.arc
+            if player_image == player_up_img:
+                pygame.draw.arc(attack_surface, (255, 0, 0), (0, 0, 100, 100), 0, math.pi, 5)
+                self.angle = -math.pi / 2
+            elif player_image == player_down_img:
+                pygame.draw.arc(attack_surface, (255, 0, 0), (0, 0, 100, 100), math.pi, 0, 5)
+                self.angle = math.pi / 2  # Corrected angle here
+            elif player_image == player_left_img:
+                pygame.draw.arc(attack_surface, (255, 0, 0), (0, 0, 100, 100), math.pi / 2, -math.pi / 2, 5)
+                self.angle = math.pi
+            elif player_image == player_right_img:
+                pygame.draw.arc(attack_surface, (255, 0, 0), (0, 0, 100, 100), -math.pi / 2, math.pi / 2, 5)
+                self.angle = 0
+            return attack_surface
+
+# Create blue cube class
+class BlueCube(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = blue_cube_img
+        self.rect = self.image.get_rect(center=(x, y))
+        self.speed = 3
+
+    def update(self, player_pos):
+        # Move towards the player
+        dx = player_pos[0] - self.rect.x
+        dy = player_pos[1] - self.rect.y
+        dist = max(1, abs(dx) + abs(dy))
+        dx = dx / dist
+        dy = dy / dist
+        self.rect.x += dx * self.speed
+        self.rect.y += dy * self.speed
+
+# Create player object
+player = Player(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+all_sprites = pygame.sprite.Group(player)
+attacks = pygame.sprite.Group()
+blue_cubes = pygame.sprite.Group()
+
+## Main loop
+running = True
+clock = pygame.time.Clock()
+while running:
+    # Set background color
+    screen.fill((50, 50, 50))  # Dark gray
+
+    keys = pygame.key.get_pressed()
+    player.move(keys)  # Handle player movement
+    player.handle_attack()  # Handle player attack
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+    # Spawn blue cubes
+    if random.randint(0, 100) < 3:  # Adjust the frequency of blue cube spawning as needed
+        x = random.randint(0, SCREEN_WIDTH)
+        y = random.randint(0, SCREEN_HEIGHT)
+        distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+        if distance > 250:
+            blue_cube = BlueCube(x, y)
+            blue_cubes.add(blue_cube)
+            all_sprites.add(blue_cube)
+
+    # Update blue cubes
+    for blue_cube in blue_cubes:
+        blue_cube.update(player.rect.center)
+
+    # Check for collisions between attacks and blue cubes
+    for attack in attacks:
+        # Check if attack collides with any blue cube
+        hit_blue_cubes = pygame.sprite.spritecollide(attack, blue_cubes, True)
+        # No need to remove attack upon collision with blue cube
+        # Attack will continue even after hitting a blue cube
+        for _ in hit_blue_cubes:
+            score+=1
+    # Update attacks
+    for attack in attacks:
+        attack.update()
+
+    # Check for collisions with player
+    if pygame.sprite.spritecollide(player, blue_cubes, True):
+        while running:
+            show_death_screen()
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+
+    all_sprites.draw(screen)
+    pygame.display.flip()
+    clock.tick(60)  # Limit frame rate to 60 FPS
+
+# Quit Pygame
+pygame.quit()
+ 
