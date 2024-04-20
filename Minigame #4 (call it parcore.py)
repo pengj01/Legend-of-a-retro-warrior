@@ -1,0 +1,130 @@
+import pygame
+import sys
+import random
+
+# Initialize Pygame
+pygame.init()
+
+# Constants
+WIDTH, HEIGHT = 800, 600
+PLAYER_WIDTH, PLAYER_HEIGHT = 50, 50
+PLATFORM_WIDTH, PLATFORM_HEIGHT = 100, 20
+PLATFORM_COLOR = (0, 255, 0)
+PLAYER_COLOR = (255, 0, 0)
+BACKGROUND_COLOR = (0, 0, 0)
+GRAVITY = 0.5
+JUMP_HEIGHT = 12
+DOUBLE_JUMP_HEIGHT = 10  # Double jump height
+SCROLL_SPEED = 2  # Slower scrolling speed
+MOVE_SPEED = 5  # Faster left-right movement speed
+INITIAL_PLATFORMS = 10  # Number of initial platforms
+PLATFORM_SPAWN_DELAY = 35         # Decreased delay between platform spawns for slightly higher spawn rate
+
+# Create the screen
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Parcore.py")
+
+# Clock
+clock = pygame.time.Clock()
+
+# Player
+player = pygame.Rect(WIDTH // 2 - PLAYER_WIDTH // 2, HEIGHT // 2 - PLAYER_HEIGHT // 2, PLAYER_WIDTH, PLAYER_HEIGHT)
+player_velocity = 0
+jumping = False
+double_jump = True  # Flag to check if double jump is available
+
+# Platforms
+platforms = []
+
+# Function to generate platforms
+def generate_platform():
+    x = random.randint(0, WIDTH - PLATFORM_WIDTH)
+    y = random.randint(0, HEIGHT)
+    platforms.append(pygame.Rect(x, y, PLATFORM_WIDTH, PLATFORM_HEIGHT))
+
+# Initial platform generation
+for i in range(INITIAL_PLATFORMS):
+    generate_platform()
+
+# Ensure there's at least one platform below the player's starting position
+platforms.append(pygame.Rect(300, player.bottom, PLATFORM_WIDTH, PLATFORM_HEIGHT))
+
+   # Counter to track platform spawn delay
+platform_spawn_counter = PLATFORM_SPAWN_DELAY  # Initialize counter to start spawning immediately
+while True:
+    platform_below_player = False
+    for platform in platforms:
+        if platform.top >= player.bottom:
+            platform_below_player = True
+            break
+    if not platform_below_player:
+        generate_platform()
+    else:
+        break 
+# Main game loop
+while True:
+    screen.fill(BACKGROUND_COLOR)
+
+    # Event handling
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE:
+                if not jumping:
+                    jumping = True
+                    player_velocity = -JUMP_HEIGHT
+                elif double_jump:
+                    double_jump = False
+                    player_velocity = -DOUBLE_JUMP_HEIGHT
+
+    # Player movement
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_LEFT] and player.left > 0:
+        player.x -= MOVE_SPEED
+    if keys[pygame.K_RIGHT] and player.right < WIDTH:
+        player.x += MOVE_SPEED
+
+    # Apply gravity
+    player_velocity += GRAVITY
+    player.y += player_velocity
+
+    # Check if player falls below the screen
+    if player.top > HEIGHT:
+        pygame.quit()
+        sys.exit()
+
+    # Check collision with platforms
+    for platform in platforms:
+        if player.colliderect(platform) and player_velocity > 0:
+            player_velocity = 0
+            player.bottom = platform.top
+            jumping = False
+            double_jump = True  # Reset double jump when player lands on a platform
+
+    # Remove platforms that have gone off-screen
+    platforms = [platform for platform in platforms if platform.top < HEIGHT]
+
+    # Spawn new platforms with delay
+    platform_spawn_counter += 1
+    if platform_spawn_counter >= PLATFORM_SPAWN_DELAY:
+        generate_platform()
+        platform_spawn_counter = 0
+
+    # Scroll platforms
+    for platform in platforms:
+        platform.y += SCROLL_SPEED
+
+    # Draw platforms
+    for platform in platforms:
+        pygame.draw.rect(screen, PLATFORM_COLOR, platform)
+
+    # Draw player
+    pygame.draw.rect(screen, PLAYER_COLOR, player)
+
+    # Update the display
+    pygame.display.flip()
+
+    # Cap the frame rate
+    clock.tick(60)
