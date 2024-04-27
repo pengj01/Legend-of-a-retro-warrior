@@ -16,7 +16,7 @@ def render_room_number(room_number):
     text = font.render("Room: " + str(room_number), True, (255, 255, 255))
     screen.blit(text, (200, 200))  # Adjust position as needed
 # Set screen dimensions
-SCREEN_WIDTH, SCREEN_HEIGHT = 900, 750
+SCREEN_WIDTH, SCREEN_HEIGHT = 830, 670
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Legend of a retro warrior")
 bed_img_original = pygame.image.load("bed.png").convert_alpha()
@@ -178,7 +178,7 @@ class Cube(pygame.sprite.Sprite):
         super().__init__()
         self.image = image
         self.rect = self.image.get_rect(center=(x, y))
-        self.speed = 3
+        self.speed=random.randint(25,35)/10
 
     def update(self, player_pos):
         # Move towards the player
@@ -204,7 +204,7 @@ class GreenCube(Cube):
         self.health = self.max_health
         self.health_bar_length = 30
         self.health_ratio = self.health / self.max_health
-        self.speed=3.5
+        self.speed=random.randint(30,40)/10
     def draw_health_bar(self):
         # Calculate width of health bar
         self.health_ratio = self.health / self.max_health
@@ -225,7 +225,7 @@ class RedCube(Cube):
         self.health = self.max_health
         self.health_bar_length = 30
         self.health_ratio = self.health / self.max_health
-        self.speed=3.75
+        self.speed=random.randint(35,45)/10
     def draw_health_bar(self):
         # Calculate width of health bar
         self.health_ratio = self.health / self.max_health
@@ -250,7 +250,7 @@ class PurpleCube(Cube):
         self.health = self.max_health
         self.health_bar_length = 30
         self.health_ratio = self.health / self.max_health
-        self.speed=4.25
+        self.speed=random.randint(40,47)/10
     def draw_health_bar(self):
         # Calculate width of health bar
         self.health_ratio = self.health / self.max_health
@@ -338,7 +338,7 @@ while running:
                 if player.equipped_sword == "wooden":
                     cube.health -= 1  # Decrease the health of the cube by 1
                 if player.equipped_sword == "katana":
-                    cube.health -= 8
+                    cube.health -= 10
                 if cube.health <= 0:
                     cube.kill()  # Delete the cube if health drops to or below 0
 
