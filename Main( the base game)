@@ -1,6 +1,5 @@
 
 
-i
 
 import pygame
 import math
@@ -522,9 +521,11 @@ while running:
     if pygame.sprite.spritecollide(player, cubes, True):
         show_death_screen()
         while running:
+            pygame.mixer.music.stop()
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
+                    
 
     # Update display
     pygame.display.flip()
@@ -532,4 +533,3 @@ while running:
     render_room_number(doorcount)  # Render room number
     
 pygame.quit()
-
