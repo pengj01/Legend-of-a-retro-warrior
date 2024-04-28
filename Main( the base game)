@@ -1,10 +1,10 @@
 
 
+i
+
 import pygame
-import os
 import math
 import random
-import time
 bed_img = pygame.image.load("bed.png").convert_alpha
 
 
@@ -50,6 +50,14 @@ purple_cube_img.fill((128, 0, 128))
 
 # Load font for displaying sword names
 font = pygame.font.SysFont(None, 20)
+# Load level music
+pygame.mixer.music.load("level_music.wav")
+
+# Load zombie hit sound effect
+zombie_hit_sound = pygame.mixer.Sound("zombie_hit.wav")
+slash_sound = pygame.mixer.Sound("slash_sound.wav")
+# Start playing level music
+pygame.mixer.music.play(-1)  # -1 means loop indefinitely
 
 # Define function to display sword names
 def display_sword_names():
@@ -123,6 +131,7 @@ class Player(pygame.sprite.Sprite):
             self.attack_cooldown = 350  # milliseconds
 
     def attack(self):
+        slash_sound.play
         if self.equipped_sword == "wooden":
             attack = Attack(self.rect.centerx, self.rect.centery, self.image)
         elif self.equipped_sword == "katana":
@@ -334,13 +343,17 @@ while running:
         for cube in hit_cubes:
             if isinstance(cube, BlueCube):  # Check if the cube is a BlueCube
                 cube.kill()  # Delete the blue cube
+                zombie_hit_sound.play()
             elif isinstance(cube, GreenCube) or isinstance(cube, RedCube) or isinstance(cube, PurpleCube):  # Check if the cube is a GreenCube
                 if player.equipped_sword == "wooden":
                     cube.health -= 1  # Decrease the health of the cube by 1
                 if player.equipped_sword == "katana":
                     cube.health -= 10
                 if cube.health <= 0:
+                    # Play zombie hit sound effect when a cube dies
+                    zombie_hit_sound.play()
                     cube.kill()  # Delete the cube if health drops to or below 0
+
 
     # Update cubes
     for cube in cubes:
@@ -519,3 +532,4 @@ while running:
     render_room_number(doorcount)  # Render room number
     
 pygame.quit()
+
