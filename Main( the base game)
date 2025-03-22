@@ -1,14 +1,11 @@
- 
-
 import pygame
-import os
 import math
 import random
 import time
 bed_img = pygame.image.load("bed.png").convert_alpha
 
 
-# Initialize Pygame
+# Iqnitialize Pygame
 pygame.init()
 doornumbe = 0
 def render_room_number(room_number):
@@ -16,22 +13,28 @@ def render_room_number(room_number):
     text = font.render("Room: " + str(room_number), True, (255, 255, 255))
     screen.blit(text, (200, 200))  # Adjust position as needed
 # Set screen dimensions
-SCREEN_WIDTH, SCREEN_HEIGHT =900, 750
+SCREEN_WIDTH, SCREEN_HEIGHT =1000, 800
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Legend of a retro warrior impossible mode")
+pygame.display.set_caption("Legend of a retro warrior")
 bed_img_original = pygame.image.load("bed.png").convert_alpha()
 # Resize bed image
 bed_img = pygame.transform.scale(bed_img_original, (200, 100))
 # Load player images
+warning_img = pygame.image.load("warning.png").convert_alpha()
+hole_img = pygame.image.load("hole.png").convert_alpha()
+
 player_up_img = pygame.image.load("playerupdefalt.jpg").convert_alpha()
 player_down_img = pygame.image.load("playerdowndefalt.png").convert_alpha()
 player_left_img = pygame.image.load("playerleftdefalt.png").convert_alpha()
 player_right_img = pygame.image.load("playerightdefalt.png").convert_alpha()
-
+arrow_img = pygame.image.load("arrow.png").convert_alpha()
+shield_img = pygame.image.load("shield.png").convert_alpha()
 # Load sword images
 wooden_sword_img = pygame.image.load("woodensword.png").convert_alpha()
 katana_img = pygame.image.load("katana.png").convert_alpha()
-
+bigsword_img = pygame.image.load("greatsword.png").convert_alpha()
+bow_img = pygame.image.load("bow.png").convert_alpha()
+bigsword_img = pygame.transform.scale(bigsword_img, (50, 120))
 # Load blue cube image
 blue_cube_img = pygame.Surface((30, 30))
 blue_cube_img.fill((0, 0, 255))
@@ -50,7 +53,63 @@ purple_cube_img.fill((128, 0, 128))
 
 # Load font for displaying sword names
 font = pygame.font.SysFont(None, 20)
+# Load level music
+pygame.mixer.music.load("level_music.wav")
+boss_img = pygame.image.load("boss.png").convert_alpha()
+boss_health_stage = 500  # Start at boss's maximum health
+warning_active = False
+warning_start_time = 0
+warning_rect = None
+# Create Boss class
+class Boss(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.transform.scale(boss_img, (200, 200))  # Resize boss image
+        self.rect = self.image.get_rect(center=(x, y))
+        self.max_health = 500  # Boss health
+        self.health = self.max_health
+        self.speed = 2  # Boss movement speed
+        self.health_bar_length = 100  # Length of the health bar
+        self.health_ratio = self.health / self.max_health
 
+    def update(self, player_pos):
+        # Move towards the player
+        dx = player_pos[0] - self.rect.x
+        dy = player_pos[1] - self.rect.y
+        dist = max(1, abs(dx) + abs(dy))
+        dx = dx / dist
+        dy = dy / dist
+        self.rect.x += dx * self.speed
+        self.rect.y += dy * self.speed
+        if self.health<300:
+            self.speed=3
+        if self.health<150:
+            self.speed=3.5
+    def draw_health_bar(self):
+        # Calculate health bar width
+        self.health_ratio = self.health / self.max_health
+        bar_width = int(self.health_ratio * self.health_bar_length)
+        # Determine color based on health
+        if self.health_ratio > 0.6:
+            health_color = (0, 255, 0)  # Green
+        elif self.health_ratio > 0.3:
+            health_color = (255, 255, 0)  # Yellow
+        elif self.health_ratio > 0.1:
+            health_color = (255, 165, 0)  # Orange
+        else:
+            health_color = (255, 0, 0)  # Red
+        # Draw health bar above the boss
+        pygame.draw.rect(screen, health_color, (self.rect.x - 50, self.rect.y - 20, bar_width, 10))
+
+# Add boss logic
+boss_spawned = False
+boss = None  
+# Load zombie hit sound effect
+zombie_hit_sound = pygame.mixer.Sound("zombie_hit.wav")
+slash_sound = pygame.mixer.Sound("slash_sound.wav")
+# Start playing level music
+pygame.mixer.music.play(-1)  # -1 means loop indefinitely
+sheild_broken=False
 # Define function to display sword names
 def display_sword_names():
     wooden_text = font.render("Wooden Sword", True, (255, 255, 255))
@@ -73,7 +132,6 @@ def show_death_screen():
     screen.blit(text, text_rect)
     # Update the display
     pygame.display.flip()
-
 # Create player class
 class Player(pygame.sprite.Sprite):
     def __init__(self, x, y):
@@ -86,13 +144,19 @@ class Player(pygame.sprite.Sprite):
         self.equipped_sword = "wooden"  # Default equipped sword
         self.wooden_sword_img = wooden_sword_img
         self.katana_img = katana_img
+        self.big_img = bigsword_img
+        self.bow_img = bow_img
         self.sword_rect = self.wooden_sword_img.get_rect(topright=(SCREEN_WIDTH, 0))  # Initialize sword rect
-
+        self.arrow_img= arrow_img
     def update(self):
         if self.equipped_sword == "wooden":
             self.image = self.wooden_sword_img
         elif self.equipped_sword == "katana":
             self.image = self.katana_img
+        elif self.equipped_sword == "big":
+            self.image = self.big_img
+        elif self.equipped_sword == "bow":
+            self.image = self.bow_img
         # Update sword position
         self.sword_rect.topright = (SCREEN_WIDTH, 0)
 
@@ -114,6 +178,7 @@ class Player(pygame.sprite.Sprite):
         current_time = pygame.time.get_ticks()
         if pygame.key.get_pressed()[pygame.K_SPACE] and current_time - self.last_attack_time > self.attack_cooldown:
             self.attack()
+            slash_sound.play()
             self.last_attack_time = current_time
         elif pygame.key.get_pressed()[pygame.K_1]:
             self.equipped_sword = "wooden"
@@ -121,12 +186,22 @@ class Player(pygame.sprite.Sprite):
         elif pygame.key.get_pressed()[pygame.K_2]:
             self.equipped_sword = "katana"
             self.attack_cooldown = 350  # milliseconds
-
+        elif pygame.key.get_pressed()[pygame.K_3]:
+            self.equipped_sword = "big"
+            self.attack_cooldown = 600  # milliseconds
+        elif pygame.key.get_pressed()[pygame.K_4]:
+            self.equipped_sword = "bow"
+            self.attack_cooldown = 500  # milliseconds
     def attack(self):
+        
         if self.equipped_sword == "wooden":
             attack = Attack(self.rect.centerx, self.rect.centery, self.image)
         elif self.equipped_sword == "katana":
             attack = KatanaAttack(self.rect.centerx, self.rect.centery, self.image)
+        elif self.equipped_sword == "big":
+            attack=bigAttack(self.rect.centerx, self.rect.centery, self.image)
+        elif self.equipped_sword == "bow":
+            attack = bowAttack(self.rect.centerx, self.rect.centery, self.image)
         all_sprites.add(attack)
         attacks.add(attack)
 
@@ -170,7 +245,43 @@ class KatanaAttack(Attack):
         self.speed = 20
         self.distance_traveled = 0
         self.attack_cooldown = 300  # milliseconds
+class bigAttack(Attack):
+    def __init__(self, x, y, player_image):
+        super().__init__(x, y, player_image)
+        self.speed = 10
+        self.distance_traveled = 0
+        self.attack_cooldown = 600  # milliseconds
+class bowAttack(pygame.sprite.Sprite):
+    def __init__(self, x, y, player_image):
+        super().__init__()
+        self.speed = 25
+        self.distance_traveled = 0
+        self.max_distance = 300
 
+        # Rotate arrow based on player direction
+        if player_image == player_up_img:
+            self.image = player.arrow_img
+            self.angle = -math.pi / 2
+        elif player_image == player_down_img:
+            self.image = pygame.transform.rotate(player.arrow_img, 180)
+            
+            self.angle = math.pi / 2
+        elif player_image == player_left_img:
+            self.image = pygame.transform.rotate(player.arrow_img, 90)
+            
+            self.angle = math.pi
+        elif player_image == player_right_img:
+            self.image = pygame.transform.rotate(player.arrow_img, -90)
+            self.angle = 0
+
+        self.rect = self.image.get_rect(center=(x, y))
+
+    def update(self):
+        self.rect.x += self.speed * math.cos(self.angle)
+        self.rect.y += self.speed * math.sin(self.angle)
+        self.distance_traveled += self.speed
+        if self.distance_traveled >= self.max_distance:
+            self.kill()
 # Create cube class (base class for blue, green, red, and purple cubes)
 # Create cube class (base class for blue, green, red, and purple cubes)
 class Cube(pygame.sprite.Sprite):
@@ -178,7 +289,7 @@ class Cube(pygame.sprite.Sprite):
         super().__init__()
         self.image = image
         self.rect = self.image.get_rect(center=(x, y))
-        self.speed = 3
+        self.speed=random.randint(25,35)/10
 
     def update(self, player_pos):
         # Move towards the player
@@ -204,7 +315,7 @@ class GreenCube(Cube):
         self.health = self.max_health
         self.health_bar_length = 30
         self.health_ratio = self.health / self.max_health
-        self.speed=3.5
+        self.speed=random.randint(30,40)/10
     def draw_health_bar(self):
         # Calculate width of health bar
         self.health_ratio = self.health / self.max_health
@@ -225,7 +336,7 @@ class RedCube(Cube):
         self.health = self.max_health
         self.health_bar_length = 30
         self.health_ratio = self.health / self.max_health
-        self.speed=3.5
+        self.speed=random.randint(35,45)/10
     def draw_health_bar(self):
         # Calculate width of health bar
         self.health_ratio = self.health / self.max_health
@@ -250,7 +361,7 @@ class PurpleCube(Cube):
         self.health = self.max_health
         self.health_bar_length = 30
         self.health_ratio = self.health / self.max_health
-        self.speed=4.25
+        self.speed=random.randint(40,47)/10
     def draw_health_bar(self):
         # Calculate width of health bar
         self.health_ratio = self.health / self.max_health
@@ -304,6 +415,7 @@ initial_enemy_count = random.randint(2, 3)
 # Main loop
 running = True
 clock = pygame.time.Clock()
+boss_ded=False
 instructions_displayed = True
 door_instructions_displayed = False
 while running:
@@ -321,11 +433,65 @@ while running:
     keys = pygame.key.get_pressed()
     player.move(keys)  # Handle player movement
     player.handle_attack()  # Handle player attack
-
+    
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+    if doorcount == 30 and not boss_spawned and not boss_ded:
+        # Spawn boss
+        boss_spawned = True
+        boss = Boss(0,0)  # Spawn boss at center of the screen
+        all_sprites.add(boss)
 
+    if boss_spawned:
+        # Update and draw boss
+        boss.update(player.rect.center)
+        boss.draw_health_bar()
+        if boss.health <= boss_health_stage - 160:
+            boss_health_stage -= 160
+            warning_active = True
+            warning_start_time = pygame.time.get_ticks()
+
+            # Generate a random location for the warning
+            warning_rect =[random.randint(0, SCREEN_WIDTH - 100),random.randint(0, SCREEN_HEIGHT - 100)]
+        if pygame.time.get_ticks() - warning_start_time <= 500 and warning_active==True:
+            screen.blit(warning_img, [warning_rect[0]-75,warning_rect[1]-75])
+        if pygame.time.get_ticks() - warning_start_time > 500 and warning_active==True:
+            x=warning_rect[0]
+            y=warning_rect[1]
+            screen.blit( hole_img , (x-75, y-75)) 
+            distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+            if distance < 75:
+                show_death_screen()
+                while running:
+                    pygame.mixer.music.stop()
+                    for event in pygame.event.get():
+                        if event.type == pygame.QUIT:
+                            running = False
+            if doorcount==31:
+                warning_active=False
+        if pygame.sprite.collide_rect(player, boss):
+            show_death_screen()  # Display the death screen
+            running = False  # End the game loop
+        # Check for collisions between attacks and boss
+        for attack in attacks:
+            if pygame.sprite.collide_rect(attack, boss):
+                if player.equipped_sword == "wooden":
+                    boss.health -= 5  # Damage for wooden sword
+                elif player.equipped_sword == "katana":
+                    boss.health -= 25 # Damage for katana
+                elif player.equipped_sword == "big":
+                    boss.health -= 40  # Damage for great sword
+                elif player.equipped_sword == "bow":
+                    boss.health -= 15  # Damage for bow
+                attack.kill()  # Remove attack after hitting the boss
+                
+                # Check if the boss is defeated
+                if boss.health <= 0:
+                    boss.kill()
+                    boss_spawned = False
+                    boss_ded=True
+                    sheild_broken=False
     # Check for collisions between attacks and cubes
     for attack in attacks:
         # Check if attack collides with any cube
@@ -333,13 +499,21 @@ while running:
         for cube in hit_cubes:
             if isinstance(cube, BlueCube):  # Check if the cube is a BlueCube
                 cube.kill()  # Delete the blue cube
+                zombie_hit_sound.play()
             elif isinstance(cube, GreenCube) or isinstance(cube, RedCube) or isinstance(cube, PurpleCube):  # Check if the cube is a GreenCube
                 if player.equipped_sword == "wooden":
                     cube.health -= 1  # Decrease the health of the cube by 1
                 if player.equipped_sword == "katana":
                     cube.health -= 10
+                if player.equipped_sword == "big":
+                    cube.health -= 30
+                if player.equipped_sword == "bow":
+                    cube.health -= 15
                 if cube.health <= 0:
+                    # Play zombie hit sound effect when a cube dies
+                    zombie_hit_sound.play()
                     cube.kill()  # Delete the cube if health drops to or below 0
+
 
     # Update cubes
     for cube in cubes:
@@ -348,36 +522,85 @@ while running:
             cube.draw_health_bar()  # Draw health bar for green, red, and purple cubes
 
     # Check if all cubes are destroyed
-    if len(cubes) == 0:
-        # Check if the door is closed
-        if not door.opened:
-            # Display door instructions only when touching the door
-            if pygame.sprite.collide_rect(player, door) and not door_instructions_displayed:
-                pygame.display.flip()
-                door_instructions_displayed = True
-
-            # Check if player presses 'E' to open the door
-            if keys[pygame.K_e]:
-                door.opened = True
-                instructions_displayed = False
+    if not boss_spawned:
+        if len(cubes) == 0:
+            # Check if the door is closed
+            if not door.opened:
+                # Display door instructions only when touching the door
+                if pygame.sprite.collide_rect(player, door) and not door_instructions_displayed:
+                    pygame.display.flip()
+                    door_instructions_displayed = True
+    
+                # Check if player presses 'E' to open the door
+                if keys[pygame.K_e]:
+                    door.opened = True
+                    instructions_displayed = False
                 
     # Check if the player touches the door
     if door.opened and pygame.sprite.collide_rect(player, door):
+
         # Reset game
-        doorcount += 1
+
+        doorcount += 15
         all_sprites.empty()
         all_sprites.add(player)  # Add player back to sprite group
         player.rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
         # Randomly choose a side for the yellow door
-        if doorcount != 10:  
+        if doorcount != 10:
             side = random.choice(["top", "bottom", "left", "right"])
             door = YellowDoor(side)
         else:
             door=YellowDoor("right")
         all_sprites.add(door)
         # Respawn initial blue cubes
-        if doorcount !=10:
-            for _ in range(initial_enemy_count + doorcount*7):
+        k=random.randint(1,5)
+        if doorcount !=10 and doorcount !=20:
+            if k>1:
+                for _ in range(initial_enemy_count + doorcount//5):
+                    x = random.randint(0, SCREEN_WIDTH)
+                    y = random.randint(0, SCREEN_HEIGHT)
+                    distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+                    if distance > 200:
+                        blue_cube = BlueCube(x, y)
+                        cubes.add(blue_cube)
+                        all_sprites.add(blue_cube)
+                    if random.randint(0, 2) == 0 and doorcount>3:  # Adjust probability as needed
+                        x = random.randint(0, SCREEN_WIDTH)
+                        y = random.randint(0, SCREEN_HEIGHT)
+                        distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+                        if distance > 200:
+                            green_cube = GreenCube(x, y)  
+                            cubes.add(green_cube)
+                            all_sprites.add(green_cube)
+                    if random.randint(0, 6) == 0 and doorcount>8:  # Adjust probability as needed
+                        x = random.randint(0, SCREEN_WIDTH)
+                        y = random.randint(0, SCREEN_HEIGHT)
+                        distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+                        if distance > 200:
+                            red_cube = RedCube(x, y)
+                            cubes.add(red_cube)
+                            all_sprites.add(red_cube)
+                    if random.randint(0, 4) == 0 and doorcount>5:  # Adjust probability as needed
+                        x = random.randint(0, SCREEN_WIDTH)
+                        y = random.randint(0, SCREEN_HEIGHT)
+                        distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+                        if distance > 200:
+                            purple_cube = PurpleCube(x, y)
+                            cubes.add(purple_cube)
+                            all_sprites.add(purple_cube)
+            else:
+                list1=[]
+                for i in range(initial_enemy_count + doorcount//3):
+                    x,y=random.randint(0, SCREEN_WIDTH),random.randint(0, SCREEN_WIDTH)
+                    distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+                    while distance <100:
+                        x,y=random.randint(0, SCREEN_WIDTH),random.randint(0, SCREEN_WIDTH)
+                        distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+                    list1.append([x,y])
+                    
+
+        if doorcount==20:
+            for _ in range(8):
                 x = random.randint(0, SCREEN_WIDTH)
                 y = random.randint(0, SCREEN_HEIGHT)
                 distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
@@ -385,39 +608,88 @@ while running:
                     blue_cube = BlueCube(x, y)
                     cubes.add(blue_cube)
                     all_sprites.add(blue_cube)
-            # Add red cube occasionally
-            if random.randint(0, 0) == 0 and doorcount>1:  # Adjust probability as needed
+            for _ in range(6):
                 x = random.randint(0, SCREEN_WIDTH)
                 y = random.randint(0, SCREEN_HEIGHT)
                 distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
-                if distance > 200:
+                if distance > 300:
                     green_cube = GreenCube(x, y)
                     cubes.add(green_cube)
                     all_sprites.add(green_cube)
-            if random.randint(0, 0) == 0 and doorcount>1:  # Adjust probability as needed
+            for _ in range(6):
                 x = random.randint(0, SCREEN_WIDTH)
                 y = random.randint(0, SCREEN_HEIGHT)
                 distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
-                if distance > 200:
+                if distance > 300:
                     red_cube = RedCube(x, y)
                     cubes.add(red_cube)
                     all_sprites.add(red_cube)
-            if random.randint(0, 0) == 0 and doorcount>1:  # Adjust probability as needed
+            for _ in range(6):
                 x = random.randint(0, SCREEN_WIDTH)
                 y = random.randint(0, SCREEN_HEIGHT)
                 distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
-                if distance > 200:
+                if distance > 300:
                     purple_cube = PurpleCube(x, y)
                     cubes.add(purple_cube)
                     all_sprites.add(purple_cube)
+    
     if doorcount == 10:
         # Blit the bed image onto the screen
-        screen.blit( bed_img , (100, 200)) 
-        screen.blit( bed_img , (400, 400)) 
-        screen.blit( bed_img , (100, 400)) 
-        screen.blit( bed_img , (400, 200)) 
+        screen.blit( bed_img , (200, 300)) 
+        screen.blit( bed_img , (600, 600)) 
+        screen.blit( bed_img , (200, 600)) 
+        screen.blit( bed_img , (600, 300)) 
         text1 = font.render("Rest and reconver.... prepair yourself ", True, (155, 0, 0))
-        screen.blit(text1, (SCREEN_WIDTH // 2 - text1.get_width() // 2, SCREEN_HEIGHT // 2))
+        screen.blit(text1, (SCREEN_WIDTH // 2 - text1.get_width() // 2, SCREEN_HEIGHT // 3))
+    else:
+        if doorcount>0 and doorcount !=20 and doorcount!=10:
+
+            if k==1:
+                for i in range(initial_enemy_count + doorcount//3):
+                    x=list1[i][0]
+                    y=list1[i][1]
+                    screen.blit( hole_img , (x-75, y-75)) 
+                    distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+                    if distance < 75:
+                        show_death_screen()
+                        while running:
+                            pygame.mixer.music.stop()
+                            for event in pygame.event.get():
+                                if event.type == pygame.QUIT:
+                                    running = False
+    if doorcount==50:
+        for _ in range(1):
+            x = random.randint(0, SCREEN_WIDTH)
+            y = random.randint(0, SCREEN_HEIGHT)
+            distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+            if distance > 200:
+                blue_cube = BlueCube(x, y)
+                cubes.add(blue_cube)
+                all_sprites.add(blue_cube)
+        for _ in range(1):
+            x = random.randint(0, SCREEN_WIDTH)
+            y = random.randint(0, SCREEN_HEIGHT)
+            distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+            if distance > 300:
+                green_cube = GreenCube(x, y)
+                cubes.add(green_cube)
+                all_sprites.add(green_cube)
+        for _ in range(1):
+            x = random.randint(0, SCREEN_WIDTH)
+            y = random.randint(0, SCREEN_HEIGHT)
+            distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+            if distance > 300:
+                red_cube = RedCube(x, y)
+                cubes.add(red_cube)
+                all_sprites.add(red_cube)
+        for _ in range(1):
+            x = random.randint(0, SCREEN_WIDTH)
+            y = random.randint(0, SCREEN_HEIGHT)
+            distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+            if distance > 300:
+                purple_cube = PurpleCube(x, y)
+                cubes.add(purple_cube)
+                all_sprites.add(purple_cube)
     for attack in attacks:
         attack.update()
         # Check if the door is closed
@@ -438,18 +710,29 @@ while running:
         screen.blit(wooden_sword_img, player.sword_rect)
     if player.equipped_sword == 'katana':
         screen.blit(katana_img, player.sword_rect)
+    if player.equipped_sword == 'big':
+        screen.blit(bigsword_img, player.sword_rect)
+    if player.equipped_sword == 'bow':
+        screen.blit(bow_img, player.sword_rect)
     # Display sword names
     display_sword_names()
+    if sheild_broken==False:
+        screen.blit( shield_img , (900, 700)) 
     if pygame.sprite.spritecollide(player, cubes, True):
-        show_death_screen()
-        while running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
+        if sheild_broken==True:
+            show_death_screen()
+            while running:
+                pygame.mixer.music.stop()
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        running = False
+        else:
+            sheild_broken=True
+    text1 = font.render("Score: "+str(doorcount), True, (255, 255, 255))
+    screen.blit(text1, (1*SCREEN_WIDTH // 8 - text1.get_width() // 2, 1*SCREEN_HEIGHT // 8))
     # Update display
     pygame.display.flip()
     clock.tick(60)
     render_room_number(doorcount)  # Render room number
-
+    
 pygame.quit()
-
