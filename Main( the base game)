@@ -541,7 +541,7 @@ while running:
 
         # Reset game
 
-        doorcount += 15
+        doorcount += 1
         all_sprites.empty()
         all_sprites.add(player)  # Add player back to sprite group
         player.rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
