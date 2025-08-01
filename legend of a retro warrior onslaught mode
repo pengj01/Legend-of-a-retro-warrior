@@ -1,8 +1,18 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Aug  1 19:20:34 2025
+
+@author: justi
+"""
+ 
 import pygame
 import os
 import math
 import random
+
 pygame.init()
+pygame.mixer.music.load("level_music.wav")
+pygame.mixer.music.play(-1)
 SCREEN_WIDTH, SCREEN_HEIGHT = 900, 750
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("legend of a retro warrior onslaught mode")
@@ -140,7 +150,7 @@ while running:
             running = False
 
     # Spawn blue cubes
-    if random.randint(0, 100) < 3:  # Adjust the frequency of blue cube spawning as needed
+    if random.randint(0, 100) < 4:  # Adjust the frequency of blue cube spawning as needed
         x = random.randint(0, SCREEN_WIDTH)
         y = random.randint(0, SCREEN_HEIGHT)
         distance = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
