@@ -1,0 +1,638 @@
+import pygame
+import math
+import random
+import sys
+
+"""
+Legend of a Retro Warrior — single-file (piercing + wider hits)
+Boss spawns 3 holes at once (telegraphed), 2s display -> holes; and rooms can randomly be "hole rooms."
+Holes now deal 1 damage on contact (not instant kill).
+Occasional decorative barrels (barrel1.png / barrel2.png) spawn in rooms.
+
+Controls: WASD move • Space attack • 1–4 weapon • E open door • P pause • H help • R restart
+"""
+
+# ------------------------------
+# helpers
+# ------------------------------
+
+def try_load_image(path, size=None, fallback_size=(48, 48), fallback_color=(200, 50, 200)):
+    try:
+        surf = pygame.image.load(path).convert_alpha()
+        if size:
+            surf = pygame.transform.smoothscale(surf, size)
+        return surf
+    except Exception:
+        surf = pygame.Surface(size or fallback_size, pygame.SRCALPHA)
+        surf.fill(fallback_color)
+        pygame.draw.rect(surf, (255, 255, 255), surf.get_rect(), 2)
+        return surf
+
+
+def try_load_sound(path):
+    try:
+        return pygame.mixer.Sound(path)
+    except Exception:
+        class _Silent:
+            def play(self, *args, **kwargs): pass
+        return _Silent()
+
+# ------------------------------
+# init
+# ------------------------------
+
+pygame.init()
+try:
+    pygame.mixer.init()
+except Exception:
+    pass
+
+SCREEN_WIDTH, SCREEN_HEIGHT = 1000, 800
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Legend of a Retro Warrior — Piercing Edition")
+clock = pygame.time.Clock()
+FPS = 60
+
+font_small = pygame.font.SysFont(None, 22)
+font = pygame.font.SysFont(None, 30)
+font_big = pygame.font.SysFont(None, 56)
+dirt1   = try_load_image("dirt1.png",  (48, 48), fallback_color=(220,220,255))
+# ------------------------------
+# assets (fallback-friendly)
+# ------------------------------
+
+player_up_img    = try_load_image("playerupdefalt.jpg",  (48, 48), fallback_color=(220,220,255))
+player_down_img  = try_load_image("playerdowndefalt.png",(48, 48), fallback_color=(220,220,255))
+player_left_img  = try_load_image("playerleftdefalt.png",(48, 48), fallback_color=(220,220,255))
+player_right_img = try_load_image("playerightdefalt.png",(48, 48), fallback_color=(220,220,255))
+
+wooden_sword_img = try_load_image("woodensword.png", (40, 40), fallback_color=(160,120,60))
+katana_img       = try_load_image("katana.png",      (40, 40), fallback_color=(200,200,200))
+greatsword_img   = try_load_image("greatsword.png",  (50,120), fallback_color=(180,180,220))
+bow_img          = try_load_image("bow.png",         (40, 40), fallback_color=(160,100,60))
+arrow_img_unused = None  # historical
+arrow_img        = try_load_image("arrow.png",       (8,  32), fallback_color=(230,230,230))
+
+# NEW: barrel textures (drop your generated images as these names next to the script)
+barrel1_img      = try_load_image("barrel1.png",     (144, 144), fallback_color=(140,90,50))
+barrel2_img      = try_load_image("barrel2.png",     (100, 100), fallback_color=(120,80,45))
+
+shield_img  = try_load_image("shield.png",  (64, 64), fallback_color=(120,200,255))
+warning_img = try_load_image("warning.png", (120,120), fallback_color=(255,200,50))
+hole_img    = try_load_image("hole.png",    (150,150), fallback_color=(50,50,50))
+bed_img     = try_load_image("bed.png",     (200,100), fallback_color=(180,60,60))
+boss_img    = try_load_image("boss.png",    (200,200), fallback_color=(255,60,150))
+
+try:
+    pygame.mixer.music.load("level_music.wav")
+    pygame.mixer.music.play(-1)
+except Exception:
+    pass
+zombie_hit_sound = try_load_sound("zombie_hit.wav")
+slash_sound      = try_load_sound("slash_sound.wav")
+
+blue_cube_img   = pygame.Surface((30,30)); blue_cube_img.fill((0,120,255))
+green_cube_img  = pygame.Surface((30,30)); green_cube_img.fill((0,200,100))
+red_cube_img    = pygame.Surface((30,30)); red_cube_img.fill((220,60,60))
+purple_cube_img = pygame.Surface((30,30)); purple_cube_img.fill((160,60,200))
+
+# ------------------------------
+# entities
+# ------------------------------
+
+class Player(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.dir_img = player_down_img
+        self.rect = self.dir_img.get_rect(center=(x, y))
+        self.speed = 5.2
+        self.vel = pygame.Vector2()
+        self.last_attack = 0
+        self.weapon = "wooden"
+        self.hp = 5
+        self.max_hp = 5
+        self.shield_intact = True
+        self.i_frames = 0.0
+
+    def cooldown(self):
+        return {"wooden":600, "katana":250, "big":700, "bow":350}[self.weapon]
+
+    def move(self, keys):
+        d = pygame.Vector2(keys[pygame.K_d]-keys[pygame.K_a], keys[pygame.K_s]-keys[pygame.K_w])
+        if d.length_squared(): d = d.normalize()
+        self.vel = d * self.speed
+        self.rect.centerx = max(24, min(SCREEN_WIDTH-24, self.rect.centerx + self.vel.x))
+        self.rect.centery = max(24, min(SCREEN_HEIGHT-24, self.rect.centery + self.vel.y))
+        if abs(d.x) > abs(d.y):
+            self.dir_img = player_right_img if d.x > 0 else player_left_img
+        elif d.y != 0:
+            self.dir_img = player_down_img if d.y > 0 else player_up_img
+
+    def handle_input(self):
+        keys = pygame.key.get_pressed()
+        self.move(keys)
+        now = pygame.time.get_ticks()
+        if keys[pygame.K_SPACE] and now - self.last_attack > self.cooldown():
+            self.attack(); self.last_attack = now; slash_sound.play()
+        if keys[pygame.K_1]: self.weapon = "wooden"
+        if keys[pygame.K_2]: self.weapon = "katana"
+        if keys[pygame.K_3]: self.weapon = "big"
+        if keys[pygame.K_4]: self.weapon = "bow"
+
+    def draw(self, surf):
+        img = self.dir_img.copy()
+        if self.i_frames > 0 and (pygame.time.get_ticks()//60)%2==0:
+            img.set_alpha(120)
+        surf.blit(img, img.get_rect(center=self.rect.center))
+
+    def attack(self):
+        cx, cy = self.rect.center
+        if self.weapon == "bow":
+            attacks.add(Arrow(cx, cy, self.dir_img))
+        elif self.weapon == "katana":
+            attacks.add(Slash(cx, cy, self.dir_img, speed=22, range_px=130, color=(220,220,255), thickness=8,  damage=16))
+        elif self.weapon == "big":
+            attacks.add(Slash(cx, cy, self.dir_img, speed=12, range_px=150, color=(255,210,150), thickness=12, damage=30))
+        else:
+            attacks.add(Slash(cx, cy, self.dir_img, speed=16, range_px=120, color=(255,120,120), thickness=8,  damage=12))
+
+    def damage(self, amt, knockback=None):
+        if self.i_frames > 0: return
+        if self.shield_intact:
+            self.shield_intact = False
+            self.i_frames = 0.8
+            return
+        self.hp -= amt
+        self.i_frames = 1.0
+        if knockback is not None:
+            self.rect.centerx = int(max(24, min(SCREEN_WIDTH-24, self.rect.centerx + knockback.x)))
+            self.rect.centery = int(max(24, min(SCREEN_HEIGHT-24, self.rect.centery + knockback.y)))
+
+class Slash(pygame.sprite.Sprite):
+    def __init__(self, x, y, dir_img, speed=16, range_px=120, color=(255,120,120), thickness=8, damage=12):
+        super().__init__()
+        self.speed = speed
+        self.range = range_px
+        self.dist = 0
+        self.damage = damage
+        self.color = color
+        self.thickness = thickness
+        if dir_img == player_up_img: self.angle = -math.pi/2
+        elif dir_img == player_down_img: self.angle = math.pi/2
+        elif dir_img == player_left_img: self.angle = math.pi
+        else: self.angle = 0
+        self.pos = pygame.Vector2(x, y)
+        self.image = pygame.Surface((1,1), pygame.SRCALPHA)
+        self.rect = pygame.Rect(x-6, y-6, 12, 12)
+        self.hit_inflate = 18
+    def update(self):
+        dx = math.cos(self.angle)*self.speed; dy = math.sin(self.angle)*self.speed
+        self.pos.x += dx; self.pos.y += dy
+        self.rect.center = (int(self.pos.x), int(self.pos.y))
+        self.dist += self.speed
+        if self.dist >= self.range: self.kill()
+    def draw(self, surf):
+        end = (int(self.pos.x), int(self.pos.y))
+        start = (int(self.pos.x - math.cos(self.angle)*12), int(self.pos.y - math.sin(self.angle)*12))
+        pygame.draw.line(surf, self.color, start, end, self.thickness)
+
+class Arrow(pygame.sprite.Sprite):
+    def __init__(self, x, y, dir_img):
+        super().__init__()
+        # Rotate by multiples of 90°, then apply uniform scale only (no warp)
+        if dir_img == player_up_img:
+            self.angle = -math.pi/2
+            img = pygame.transform.rotate(arrow_img, 180)
+        elif dir_img == player_down_img:
+            self.angle = math.pi/2
+            img = pygame.transform.rotate(arrow_img,   0)
+        elif dir_img == player_left_img:
+            self.angle = math.pi
+            img = pygame.transform.rotate(arrow_img, 270)
+        else:  # right
+            self.angle = 0
+            img = pygame.transform.rotate(arrow_img,  90)
+        scale = 1.15
+        w, h = img.get_size()
+        img = pygame.transform.smoothscale(img, (int(w*scale), int(h*scale)))
+        self.image = img
+        self.pos = pygame.Vector2(x, y)
+        self.speed = 24
+        self.rect = self.image.get_rect(center=(x, y))
+        self.damage = 15
+        self.range = 380
+        self.dist = 0
+        self.hit_inflate = 12
+    def update(self):
+        dx = math.cos(self.angle) * self.speed
+        dy = math.sin(self.angle) * self.speed
+        self.pos.x += dx; self.pos.y += dy
+        self.rect.center = (int(self.pos.x), int(self.pos.y))
+        self.dist += self.speed
+        if self.dist >= self.range: self.kill()
+
+class Cube(pygame.sprite.Sprite):
+    def __init__(self, img, x, y, hp=1, speed=(2.5, 3.5)):
+        super().__init__()
+        self.image = img
+        self.rect = self.image.get_rect(center=(x, y))
+        self.max_hp = hp; self.hp = hp
+        self.speed = random.uniform(*speed)
+    def update(self, target_pos):
+        d = pygame.Vector2(target_pos) - self.rect.center
+        if d.length_squared(): d = d.normalize()
+        self.rect.centerx += d.x * self.speed
+        self.rect.centery += d.y * self.speed
+    def draw_bar(self, surf, color_func):
+        r = max(0, self.hp) / max(1, self.max_hp)
+        w = int(30 * r)
+        pygame.draw.rect(surf, color_func(r), (self.rect.x-15, self.rect.y-18, w, 5))
+
+class BlueCube(Cube):
+    def __init__(self, x, y): super().__init__(blue_cube_img, x, y, hp=1,   speed=(2.4,3.4))
+class GreenCube(Cube):
+    def __init__(self, x, y): super().__init__(green_cube_img, x, y, hp=50,  speed=(3.0,4.0))
+    def draw(self, surf): self.draw_bar(surf, lambda r: (0,255,0) if r>0.5 else (255,0,0))
+class RedCube(Cube):
+    def __init__(self, x, y): super().__init__(red_cube_img,   x, y, hp=160, speed=(3.2,4.6))
+    def draw(self, surf):
+        def c(r): return (0,255,0) if r>0.6 else (255,255,0) if r>0.3 else (255,165,0) if r>0.1 else (255,0,0)
+        self.draw_bar(surf, c)
+class PurpleCube(Cube):
+    def __init__(self, x, y): super().__init__(purple_cube_img,x, y, hp=60,  speed=(4.0,4.7))
+    def draw(self, surf):
+        def c(r): return (0,255,0) if r>0.6 else (255,255,0) if r>0.3 else (255,165,0) if r>0.1 else (255,0,0)
+        self.draw_bar(surf, c)
+
+class YellowDoor(pygame.sprite.Sprite):
+    def __init__(self, side):
+        super().__init__()
+        self.side = side
+        if side in ("top", "bottom"):
+            self.image = pygame.Surface((SCREEN_WIDTH//4, 10))
+            self.rect  = self.image.get_rect(midtop=(SCREEN_WIDTH//2, 0)) if side=="top" else self.image.get_rect(midbottom=(SCREEN_WIDTH//2, SCREEN_HEIGHT))
+        else:
+            self.image = pygame.Surface((10, SCREEN_HEIGHT//4))
+            self.rect  = self.image.get_rect(midleft=(0, SCREEN_HEIGHT//2)) if side=="left" else self.image.get_rect(midright=(SCREEN_WIDTH, SCREEN_HEIGHT//2))
+        self.image.fill((255,255,0))
+        self.opened = False
+
+class Boss(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = boss_img
+        self.rect = self.image.get_rect(center=(x, y))
+        self.max_health = 3000
+        self.health = self.max_health
+        self.base_speed = 2.2
+        self.hole_cd = 6000  # ms
+        self.last_hole = 0
+        self.hole_duration = 600
+        # multiple telegraphs
+        self.telegraphs = []  # list of {"rect": Rect, "time": int}
+
+    def update(self, player_pos):
+        speed = self.base_speed + (1 - self.health / self.max_health) * 1.6
+        d = pygame.Vector2(player_pos) - self.rect.center
+        if d.length_squared(): d = d.normalize()
+        self.rect.centerx += d.x * speed
+        self.rect.centery += d.y * speed
+
+        # spawn 3 telegraphs every cooldown
+        now = pygame.time.get_ticks()
+        if now - self.last_hole > self.hole_cd:
+            for _ in range(3):
+                x = random.randint(100, SCREEN_WIDTH - 100)
+                y = random.randint(100, SCREEN_HEIGHT - 100)
+                self.telegraphs.append({
+                    "rect": pygame.Rect(x - 75, y - 75, 150, 150),
+                    "time": now,
+                })
+            self.last_hole = now
+
+    def draw(self, surf):
+        # boss sprite
+        surf.blit(self.image, self.image.get_rect(center=self.rect.center))
+        # health bar
+        ratio = self.health / self.max_health
+        bw = 160
+        bar = pygame.Rect(self.rect.centerx - bw // 2, self.rect.top - 18, int(bw * ratio), 10)
+        pygame.draw.rect(surf, (50, 50, 50), (bar.x, bar.y, bw, 10))
+        col = (0, 255, 0) if ratio > 0.6 else (255, 255, 0) if ratio > 0.3 else (255, 120, 0) if ratio > 0.1 else (255, 0, 0)
+        pygame.draw.rect(surf, col, bar)
+        # telegraphs / holes
+        now = pygame.time.get_ticks()
+        for tg in self.telegraphs:
+            t = now - tg["time"]
+            if t < self.hole_duration:
+                r = int(75 + 20 * (1 - t / self.hole_duration))
+                pygame.draw.circle(surf, (255, 200, 50), tg["rect"].center, r, 4)
+                surf.blit(warning_img, warning_img.get_rect(center=tg["rect"].center))
+            else:
+                surf.blit(hole_img, tg["rect"])
+
+# NEW: decorative Barrels
+class Barrel(pygame.sprite.Sprite):
+    def __init__(self, x, y, variant=1):
+        super().__init__()
+        if variant==1:
+            self.image = barrel1_img 
+        elif variant==2:
+            self.image = barrel2_img
+        else:
+            self.image=dirt1
+        self.rect = self.image.get_rect(center=(x, y))
+
+# ------------------------------
+# game globals & helpers
+# ------------------------------
+
+all_sprites = pygame.sprite.Group()
+attacks = pygame.sprite.Group()
+cubes = pygame.sprite.Group()
+barrels = pygame.sprite.Group()  # decorations
+
+player = Player(SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
+all_sprites.add(player)
+
+door = None; doorcount = 0
+boss_spawned = False; boss_defeated = False; boss = None
+show_help = True
+
+# Hole room state
+HOLE_ROOM = False
+current_holes = []  # list of pygame.Rect
+HOLE_ROOM_CHANCE = 0.25  # 25% to become a hole room (tweak!)
+
+STATE_TITLE, STATE_PLAY, STATE_PAUSE, STATE_GAMEOVER = 0,1,2,3
+state = STATE_TITLE
+
+
+def safe_random_pos(min_dist=180):
+    for _ in range(300):
+        x = random.randint(40, SCREEN_HEIGHT-40); y = random.randint(40, SCREEN_HEIGHT-40)
+        if pygame.Vector2(x, y).distance_to(player.rect.center) >= min_dist:
+            return x, y
+    return(0,0)
+
+
+def spawn_room():
+    """Rebuilds the room, with optional enemies and (new) hole rooms and barrels."""
+    global door, cubes, boss_spawned, boss, HOLE_ROOM, current_holes
+    all_sprites.empty(); attacks.empty(); cubes.empty(); barrels.empty(); all_sprites.add(player)
+
+    # Door
+    side = random.choice(["top","bottom","left","right"]) if doorcount not in (10,) else "right"
+    door = YellowDoor(side); all_sprites.add(door)
+
+    # Keep boss if present
+    if boss_spawned and boss:
+        all_sprites.add(boss)
+
+    # Hole room roll — not on rest room (10) or big wave (20)
+    HOLE_ROOM = False
+    current_holes = []
+    if doorcount not in (10, 20) and random.random() < HOLE_ROOM_CHANCE:
+        HOLE_ROOM = True
+        # Scale number of holes with progress, cap at 12
+        n = min(12, 3 + doorcount // 5)
+        for _ in range(n):
+            x, y = safe_random_pos(140)
+            current_holes.append(pygame.Rect(x - 75, y - 75, 150, 150))
+
+    # Decorative barrels: 60% chance per room, spawn 1–3
+    '''
+    if not HOLE_ROOM and random.random() < 0.6:
+        for _ in range(random.randint(1, 3)):
+            bx, by = safe_random_pos(0)
+            variant = random.randint(1,3)
+            b = Barrel(bx, by, variant)
+            barrels.add(b)
+'''
+    # Special rest room
+    if doorcount == 10:
+        return
+
+    # Big mixed wave
+    if doorcount == 20 and not boss_defeated:
+        pack = []
+        for _ in range(8):  pack.append(BlueCube(*safe_random_pos(200)))
+        for _ in range(6):  pack.append(GreenCube(*safe_random_pos(260)))
+        for _ in range(6):  pack.append(RedCube(*safe_random_pos(260)))
+        for _ in range(6):  pack.append(PurpleCube(*safe_random_pos(260)))
+        for e in pack:
+            cubes.add(e); all_sprites.add(e)
+        return
+
+    # Regular spawns (still happen even if it's a hole room)
+    base = 2 + doorcount//5
+    for _ in range(base):
+        b = BlueCube(*safe_random_pos(180)); cubes.add(b); all_sprites.add(b)
+    if doorcount > 5:
+        for _ in range(random.randint(0, 1 + doorcount//10)):
+            g = GreenCube(*safe_random_pos(220)); cubes.add(g); all_sprites.add(g)
+    if doorcount > 8 and random.random() < 0.5:
+        r = RedCube(*safe_random_pos(240)); cubes.add(r); all_sprites.add(r)
+    if doorcount > 12 and random.random() < 0.6:
+        p = PurpleCube(*safe_random_pos(240)); cubes.add(p); all_sprites.add(p)
+
+
+def open_door_if_clear(keys):
+    if door and not door.opened and player.rect.colliderect(door.rect) and keys[pygame.K_e]:
+        door.opened = True
+
+
+def go_through_door_if_touching():
+    global doorcount, boss_spawned, boss
+    if door and door.opened and player.rect.colliderect(door.rect):
+        doorcount += 1
+        player.shield_intact = True
+        player.rect.center = (SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
+        if doorcount == 10:
+            player.hp = min(player.max_hp, player.hp+2); player.shield_intact = True
+        # decide boss spawn after rebuild
+        spawn_boss_now = (doorcount == 30 and not boss_spawned and not boss_defeated)
+        spawn_room()
+        if spawn_boss_now:
+            boss = Boss(200, 200)
+            boss_spawned = True
+            all_sprites.add(boss)
+
+# first room
+spawn_room()
+
+# ------------------------------
+# UI helpers
+# ------------------------------
+
+def draw_hearts(surf, x, y, hp, max_hp):
+    for i in range(max_hp):
+        col = (255,80,80) if i < hp else (90,90,90)
+        pygame.draw.rect(surf, col, (x + i*18, y, 14, 14), border_radius=3)
+
+def draw_help_panel(surf):
+    if not show_help: return
+    lines = ["WASD move, Space attack, 1-4 weapon", "E open door, P pause, H help"]
+    for i, line in enumerate(lines):
+        surf.blit(font_small.render(line, True, (220,220,220)), (20, SCREEN_HEIGHT - 60 + i*18))
+
+def draw_weapon_corner(surf):
+    img = {"wooden":wooden_sword_img, "katana":katana_img, "big":greatsword_img, "bow":bow_img}[player.weapon]
+    badge = pygame.transform.smoothscale(img, (60,60)) if player.weapon != "big" else pygame.transform.smoothscale(img, (40,90))
+    pad = 16; rect = badge.get_rect(topright=(SCREEN_WIDTH - pad, pad))
+    pygame.draw.rect(surf, (30,30,35), rect.inflate(14,14), border_radius=8)
+    pygame.draw.rect(surf, (80,80,90), rect.inflate(14,14), width=2, border_radius=8)
+    surf.blit(badge, rect)
+
+# ------------------------------
+# main loop
+# ------------------------------
+
+running = True
+STATE_TITLE, STATE_PLAY, STATE_PAUSE, STATE_GAMEOVER = 0,1,2,3
+state = STATE_TITLE
+
+while running:
+    dt = clock.tick(FPS) / 1000.0
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT: running = False
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE: running = False
+            if state == STATE_TITLE and event.key in (pygame.K_RETURN, pygame.K_SPACE): state = STATE_PLAY
+            elif state == STATE_GAMEOVER and event.key == pygame.K_r:
+                player.rect.center = (SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
+                player.hp = player.max_hp; player.shield_intact = True; player.i_frames = 0
+                doorcount = 0; boss_spawned = False; boss = None
+                spawn_room(); state = STATE_PLAY
+            elif state == STATE_PLAY:
+                if event.key == pygame.K_p: state = STATE_PAUSE
+                if event.key == pygame.K_h: show_help = not show_help
+            elif state == STATE_PAUSE and event.key == pygame.K_p:
+                state = STATE_PLAY
+
+    keys = pygame.key.get_pressed()
+
+    if state == STATE_PLAY:
+        player.handle_input(); player.i_frames = max(0.0, player.i_frames - dt)
+        for e in list(cubes): e.update(player.rect.center)
+
+        # Boss logic
+        if boss_spawned and boss:
+            boss.update(player.rect.center)
+            # damage from any active boss hole just as it appears
+            for tg in getattr(boss, 'telegraphs', []):
+                t = pygame.time.get_ticks() - tg['time']
+                if boss.hole_duration <= t <= boss.hole_duration + 200:
+                    if player.rect.colliderect(tg['rect']):
+                        player.damage(1)
+                        if player.hp <= 0: state = STATE_GAMEOVER
+            if boss.rect.colliderect(player.rect):
+                k = pygame.Vector2(player.rect.center) - boss.rect.center
+                if k.length_squared(): k.scale_to_length(24)
+                player.damage(1, knockback=k)
+                if player.hp <= 0: state = STATE_GAMEOVER
+
+        for a in list(attacks): a.update()
+
+        # piercing collisions (no a.kill() on hit)
+        for a in list(attacks):
+            hit_rect = a.rect.inflate(getattr(a, 'hit_inflate', 0), getattr(a, 'hit_inflate', 0))
+            for e in [e for e in cubes if hit_rect.colliderect(e.rect)]:
+                e.hp -= getattr(a, 'damage', 12); zombie_hit_sound.play()
+                if e.hp <= 0: e.kill()
+            if boss_spawned and boss and hit_rect.colliderect(boss.rect):
+                boss.health -= getattr(a, 'damage', 12)
+                if boss.health <= 0:
+                    boss.kill(); boss_spawned = False
+
+        for e in list(cubes):
+            if e.rect.colliderect(player.rect):
+                k = pygame.Vector2(player.rect.center) - e.rect.center
+                if k.length_squared(): k.scale_to_length(24)
+                player.damage(1, knockback=k)
+                if player.hp <= 0: state = STATE_GAMEOVER
+
+        # Hole room collision — deal 1 damage instead of instant death
+        if HOLE_ROOM:
+            for r in current_holes:
+                if player.rect.colliderect(r):
+                    player.damage(1)
+                    if player.hp <= 0:
+                        state = STATE_GAMEOVER
+                    break
+
+        open_door_if_clear(keys)
+        if door and door.opened and player.rect.colliderect(door.rect): go_through_door_if_touching()
+
+    # draw
+    screen.fill((50,50,55))
+    if state == STATE_TITLE:
+        t = font_big.render("Legend of a Retro Warrior", True, (255,255,255))
+        screen.blit(t, t.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 40)))
+        s = font.render("Press Enter to start", True, (220,220,220))
+        screen.blit(s, s.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 20)))
+    else:
+        world = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+
+        # Rest room visuals
+        if doorcount == 10:
+            world.blit(bed_img, (200, 300)); world.blit(bed_img, (600, 600))
+            world.blit(bed_img, (200, 600)); world.blit(bed_img, (600, 300))
+            msg = font.render("Rest and recover... prepare yourself", True, (200,80,80))
+            world.blit(msg, msg.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//3)))
+
+        # Hole room visuals
+        if HOLE_ROOM:
+            for r in current_holes:
+                world.blit(hole_img, r)
+
+        # Barrels first (decor)
+        for b in barrels:
+            world.blit(b.image, b.rect)
+
+        # Enemies
+        for e in cubes:
+            world.blit(e.image, e.image.get_rect(center=e.rect.center))
+            if isinstance(e, (GreenCube, RedCube, PurpleCube)): e.draw(world)
+
+        # Boss
+        if boss_spawned and boss:
+            boss.draw(world)
+
+        # Attacks
+        for a in attacks:
+            if isinstance(a, Slash): a.draw(world)
+            else: world.blit(a.image, a.rect)
+
+        # Player & door
+        player.draw(world)
+        if door: world.blit(door.image, door.rect)
+
+        screen.blit(world, (0,0))
+
+        # UI
+        draw_hearts(screen, 20, 20, player.hp, player.max_hp)
+        img = {"wooden":wooden_sword_img, "katana":katana_img, "big":greatsword_img, "bow":bow_img}[player.weapon]
+        badge = pygame.transform.smoothscale(img, (60,60)) if player.weapon != "big" else pygame.transform.smoothscale(img, (40,90))
+        pad = 16; rect = badge.get_rect(topright=(SCREEN_WIDTH - pad, pad))
+        pygame.draw.rect(screen, (30,30,35), rect.inflate(14,14), border_radius=8)
+        pygame.draw.rect(screen, (80,80,90), rect.inflate(14,14), width=2, border_radius=8)
+        screen.blit(badge, rect)
+        if player.shield_intact:
+            screen.blit(shield_img, shield_img.get_rect(bottomright=(SCREEN_WIDTH-20, SCREEN_HEIGHT-20)))
+        room_txt = font.render(f"Room: {doorcount}", True, (255,255,255))
+        screen.blit(room_txt, (SCREEN_WIDTH//2 - room_txt.get_width()//2, 14))
+        draw_help_panel(screen)
+        if state == STATE_PAUSE:
+            p = font_big.render("PAUSED", True, (255,255,255))
+            screen.blit(p, p.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2)))
+        if state == STATE_GAMEOVER:
+            g = font_big.render("YOU DIED", True, (255,80,80))
+            screen.blit(g, g.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 10)))
+            s = font.render(f"Room Score: {doorcount}  —  Press R to Restart", True, (230,230,230))
+            screen.blit(s, s.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 40)))
+
+    pygame.display.flip()
+
+pygame.quit()
+sys.exit()
