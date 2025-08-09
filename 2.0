@@ -8,7 +8,7 @@ Legend of a Retro Warrior — single-file (piercing + wider hits)
 Boss spawns 3 holes at once (telegraphed), 2s display -> holes; and rooms can randomly be "hole rooms."
 Holes now deal 1 damage on contact (not instant kill).
 Occasional decorative barrels (barrel1.png / barrel2.png) spawn in rooms.
-MAJOR COMPRESSING
+
 Controls: WASD move • Space attack • 1–4 weapon • E open door • P pause • H help • R restart
 """
 
@@ -445,18 +445,21 @@ def open_door_if_clear(keys):
 def go_through_door_if_touching():
     global doorcount, boss_spawned, boss
     if door and door.opened and player.rect.colliderect(door.rect):
-        doorcount += 1
-        player.shield_intact = True
-        player.rect.center = (SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
-        if doorcount == 10:
-            player.hp = min(player.max_hp, player.hp+2); player.shield_intact = True
-        # decide boss spawn after rebuild
-        spawn_boss_now = (doorcount == 30 and not boss_spawned and not boss_defeated)
-        spawn_room()
-        if spawn_boss_now:
-            boss = Boss(200, 200)
-            boss_spawned = True
-            all_sprites.add(boss)
+        if len(cubes) == 0:
+            doorcount += 1
+            player.shield_intact = True
+            player.rect.center = (SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
+            if doorcount == 10:
+                player.hp = min(player.max_hp, player.hp+2); player.shield_intact = True
+            if doorcount == 21:
+                player.hp = min(player.max_hp, player.hp+2); player.shield_intact = True
+            # decide boss spawn after rebuild
+            spawn_boss_now = (doorcount == 30 and not boss_spawned and not boss_defeated)
+            spawn_room()
+            if spawn_boss_now:
+                boss = Boss(200, 200)
+                boss_spawned = True
+                all_sprites.add(boss)
 
 # first room
 spawn_room()
