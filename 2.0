@@ -8,7 +8,7 @@ Legend of a Retro Warrior — single-file (piercing + wider hits)
 Boss spawns 3 holes at once (telegraphed), 2s display -> holes; and rooms can randomly be "hole rooms."
 Holes now deal 1 damage on contact (not instant kill).
 Occasional decorative barrels (barrel1.png / barrel2.png) spawn in rooms.
-
+MAJOR COMPRESSING
 Controls: WASD move • Space attack • 1–4 weapon • E open door • P pause • H help • R restart
 """
 
@@ -49,7 +49,7 @@ except Exception:
 
 SCREEN_WIDTH, SCREEN_HEIGHT = 1000, 800
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Legend of a Retro Warrior — Piercing Edition")
+pygame.display.set_caption("Legend of a Retro Warrior")
 clock = pygame.time.Clock()
 FPS = 60
 
