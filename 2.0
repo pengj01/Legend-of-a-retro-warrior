@@ -7,9 +7,13 @@ import sys
 Legend of a Retro Warrior — single-file (piercing + wider hits)
 Boss spawns 3 holes at once (telegraphed), 2s display -> holes; and rooms can randomly be "hole rooms."
 Holes now deal 1 damage on contact (not instant kill).
-Occasional decorative barrels (barrel1.png / barrel2.png) spawn in rooms.
+Optional decorative barrels (fallback images included).
 
-Controls: WASD move • Space attack • 1–4 weapon • E open door • P pause • H help • R restart
+NEW:
+- Simple Skill Tree (press T to open; 1–5 to buy). Gain +1 skill point every 3 rooms (1,4,7,...).
+- Per-room blessing: 50% chance to heal +1 HP on entry; "Aegis" skill auto-restores shield each room.
+
+Controls: WASD move • Space attack • 1–4 weapon • E open door • T skill menu • P pause • H help • R restart
 """
 
 # ------------------------------
@@ -56,7 +60,7 @@ FPS = 60
 font_small = pygame.font.SysFont(None, 22)
 font = pygame.font.SysFont(None, 30)
 font_big = pygame.font.SysFont(None, 56)
-dirt1   = try_load_image("dirt1.png",  (48, 48), fallback_color=(220,220,255))
+
 # ------------------------------
 # assets (fallback-friendly)
 # ------------------------------
@@ -70,18 +74,18 @@ wooden_sword_img = try_load_image("woodensword.png", (40, 40), fallback_color=(1
 katana_img       = try_load_image("katana.png",      (40, 40), fallback_color=(200,200,200))
 greatsword_img   = try_load_image("greatsword.png",  (50,120), fallback_color=(180,180,220))
 bow_img          = try_load_image("bow.png",         (40, 40), fallback_color=(160,100,60))
-arrow_img_unused = None  # historical
 arrow_img        = try_load_image("arrow.png",       (8,  32), fallback_color=(230,230,230))
-
-# NEW: barrel textures (drop your generated images as these names next to the script)
-barrel1_img      = try_load_image("barrel1.png",     (144, 144), fallback_color=(140,90,50))
-barrel2_img      = try_load_image("barrel2.png",     (100, 100), fallback_color=(120,80,45))
 
 shield_img  = try_load_image("shield.png",  (64, 64), fallback_color=(120,200,255))
 warning_img = try_load_image("warning.png", (120,120), fallback_color=(255,200,50))
 hole_img    = try_load_image("hole.png",    (150,150), fallback_color=(50,50,50))
 bed_img     = try_load_image("bed.png",     (200,100), fallback_color=(180,60,60))
 boss_img    = try_load_image("boss.png",    (200,200), fallback_color=(255,60,150))
+
+# Decorative fallbacks so Barrel never NameErrors
+barrel1_img = try_load_image("barrel1.png", (56, 64), fallback_color=(120,80,40))
+barrel2_img = try_load_image("barrel2.png", (56, 64), fallback_color=(100,60,30))
+dirt1       = try_load_image("dirt.png",    (56, 56), fallback_color=(90,70,50))
 
 try:
     pygame.mixer.music.load("level_music.wav")
@@ -95,6 +99,14 @@ blue_cube_img   = pygame.Surface((30,30)); blue_cube_img.fill((0,120,255))
 green_cube_img  = pygame.Surface((30,30)); green_cube_img.fill((0,200,100))
 red_cube_img    = pygame.Surface((30,30)); red_cube_img.fill((220,60,60))
 purple_cube_img = pygame.Surface((30,30)); purple_cube_img.fill((160,60,200))
+
+# ---- Dark Room / Fog-of-War settings (put near other globals) ----
+DARK_ROOM = False
+DARK_ROOM_CHANCE = 0.30     # % of rooms that are dark
+BASE_DARK_ALPHA = 240       # overlay opacity (0..255)
+PLAYER_LIGHT_RADIUS = 115   # player vision radius
+ENEMY_LIGHT_RADIUS  = 80    # small halos on enemies
+DOOR_LIGHT_RADIUS   = 120   # glow on the exit
 
 # ------------------------------
 # entities
@@ -113,9 +125,13 @@ class Player(pygame.sprite.Sprite):
         self.max_hp = 5
         self.shield_intact = True
         self.i_frames = 0.0
+        # Skill-derived modifiers
+        self.damage_bonus = 0
+        self.cooldown_mult = 1.0
 
     def cooldown(self):
-        return {"wooden":600, "katana":250, "big":700, "bow":350}[self.weapon]
+        base = {"wooden":600, "katana":250, "big":700, "bow":350}[self.weapon]
+        return int(base * self.cooldown_mult)
 
     def move(self, keys):
         d = pygame.Vector2(keys[pygame.K_d]-keys[pygame.K_a], keys[pygame.K_s]-keys[pygame.K_w])
@@ -148,13 +164,13 @@ class Player(pygame.sprite.Sprite):
     def attack(self):
         cx, cy = self.rect.center
         if self.weapon == "bow":
-            attacks.add(Arrow(cx, cy, self.dir_img))
+            attacks.add(Arrow(cx, cy, self.dir_img, damage=15 + self.damage_bonus))
         elif self.weapon == "katana":
-            attacks.add(Slash(cx, cy, self.dir_img, speed=22, range_px=130, color=(220,220,255), thickness=8,  damage=16))
+            attacks.add(Slash(cx, cy, self.dir_img, speed=22, range_px=130, color=(220,220,255), thickness=8,  damage=16 + self.damage_bonus))
         elif self.weapon == "big":
-            attacks.add(Slash(cx, cy, self.dir_img, speed=12, range_px=150, color=(255,210,150), thickness=12, damage=30))
+            attacks.add(Slash(cx, cy, self.dir_img, speed=12, range_px=150, color=(255,210,150), thickness=12, damage=30 + self.damage_bonus))
         else:
-            attacks.add(Slash(cx, cy, self.dir_img, speed=16, range_px=120, color=(255,120,120), thickness=8,  damage=12))
+            attacks.add(Slash(cx, cy, self.dir_img, speed=16, range_px=120, color=(255,120,120), thickness=8,  damage=12 + self.damage_bonus))
 
     def damage(self, amt, knockback=None):
         if self.i_frames > 0: return
@@ -197,7 +213,7 @@ class Slash(pygame.sprite.Sprite):
         pygame.draw.line(surf, self.color, start, end, self.thickness)
 
 class Arrow(pygame.sprite.Sprite):
-    def __init__(self, x, y, dir_img):
+    def __init__(self, x, y, dir_img, damage=15):
         super().__init__()
         # Rotate by multiples of 90°, then apply uniform scale only (no warp)
         if dir_img == player_up_img:
@@ -219,7 +235,7 @@ class Arrow(pygame.sprite.Sprite):
         self.pos = pygame.Vector2(x, y)
         self.speed = 24
         self.rect = self.image.get_rect(center=(x, y))
-        self.damage = 15
+        self.damage = damage
         self.range = 380
         self.dist = 0
         self.hit_inflate = 12
@@ -331,16 +347,16 @@ class Boss(pygame.sprite.Sprite):
             else:
                 surf.blit(hole_img, tg["rect"])
 
-# NEW: decorative Barrels
+# Decorative Barrels
 class Barrel(pygame.sprite.Sprite):
     def __init__(self, x, y, variant=1):
         super().__init__()
         if variant==1:
-            self.image = barrel1_img 
+            self.image = barrel1_img
         elif variant==2:
             self.image = barrel2_img
         else:
-            self.image=dirt1
+            self.image = dirt1
         self.rect = self.image.get_rect(center=(x, y))
 
 # ------------------------------
@@ -367,6 +383,80 @@ HOLE_ROOM_CHANCE = 0.25  # 25% to become a hole room (tweak!)
 STATE_TITLE, STATE_PLAY, STATE_PAUSE, STATE_GAMEOVER = 0,1,2,3
 state = STATE_TITLE
 
+# ==== Skill tree / room blessing state ====
+skill_points = 0
+skill_menu_open = False
+room_message = ""
+room_message_timer = 0.0
+
+# skill data: id -> dict(name, lvl, max, cost)
+skills = {
+    "maxhp":   {"name": "Heartsmith (+1 Max HP)",      "lvl": 0, "max": 5, "cost": 1},
+    "damage":  {"name": "Sharper Blades (+3 dmg)",      "lvl": 0, "max": 5, "cost": 1},
+    "speed":   {"name": "Boots of Haste (+6% speed)",   "lvl": 0, "max": 5, "cost": 1},
+    "cooldown":{"name": "Quick Hands (-6% CD)",         "lvl": 0, "max": 5, "cost": 1},
+    "shield":  {"name": "Aegis (sheild 100% chance auto-restore on room)", "lvl": 0, "max": 1, "cost": 2},
+}
+
+def skill_effects_apply_to_player():
+    """Recompute derived stats from skills."""
+    player.max_hp = 5 + skills["maxhp"]["lvl"]
+    player.hp = min(player.hp, player.max_hp)
+
+    speed_mult = 1.0 + 0.06 * skills["speed"]["lvl"]
+    player.speed = 5.2 * speed_mult
+
+    player.damage_bonus = 3 * skills["damage"]["lvl"]
+    player.cooldown_mult = 1.0 - 0.06 * skills["cooldown"]["lvl"]
+def grant_skill_point_if_needed():
+    """+1 skill point every 3 rooms: 1,4,7,10,..."""
+    global skill_points
+    if doorcount == 1 or ((doorcount - 1) % 3 == 0 and doorcount > 1):
+        skill_points += 1
+
+def set_room_message(text, seconds=2.0):
+    global room_message, room_message_timer
+    room_message = text
+    room_message_timer = seconds
+
+def apply_room_blessing():
+    healed = False
+    if random.random() < 0.5 and player.hp < player.max_hp:
+        player.hp += 1
+        healed = True
+
+    if skills["shield"]["lvl"] > 0:
+        player.shield_intact = True
+
+    msgs = []
+    if healed: msgs.append("+1 HP")
+    if skills["shield"]["lvl"] > 0: msgs.append("Shield Restored")
+    if msgs:
+        set_room_message("Room Blessing: " + ", ".join(msgs), 2.2)
+    else:
+        set_room_message("Room Blessing: (no effect)", 1.6)
+
+def draw_skill_menu(surf):
+    panel = pygame.Rect(SCREEN_WIDTH//2 - 320, SCREEN_HEIGHT//2 - 180, 640, 360)
+    pygame.draw.rect(surf, (25,25,32), panel, border_radius=10)
+    pygame.draw.rect(surf, (90,90,110), panel, width=2, border_radius=10)
+
+    title = font_big.render("Skill Tree", True, (255,255,255))
+    surf.blit(title, title.get_rect(midtop=(panel.centerx, panel.top + 16)))
+
+    pts = font.render(f"Skill Points: {skill_points}", True, (220,220,255))
+    surf.blit(pts, (panel.left + 20, panel.top + 70))
+
+    y = panel.top + 120
+    ids = list(skills.keys())
+    for i, sid in enumerate(ids, start=1):
+        s = skills[sid]
+        line = f"{i}. {s['name']}  [Lv {s['lvl']}/{s['max']}]  Cost:{s['cost']}"
+        surf.blit(font.render(line, True, (235,235,235)), (panel.left + 24, y))
+        y += 38
+
+    hint = font_small.render("Press number (1-5) to buy • T to close", True, (200,200,200))
+    surf.blit(hint, hint.get_rect(midbottom=(panel.centerx, panel.bottom - 12)))
 
 def safe_random_pos(min_dist=180):
     for _ in range(300):
@@ -374,7 +464,29 @@ def safe_random_pos(min_dist=180):
         if pygame.Vector2(x, y).distance_to(player.rect.center) >= min_dist:
             return x, y
     return(0,0)
+# ---- Darkness / Fog-of-war drawing (put with helper functions) ----
+def draw_darkness(surface):
+    if not DARK_ROOM:
+        return
+    overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, BASE_DARK_ALPHA))
 
+    # Player light
+    pygame.draw.circle(overlay, (0, 0, 0, 0), player.rect.center, PLAYER_LIGHT_RADIUS)
+
+    # Door light
+
+    # Enemy halos
+
+    # Boss telegraphs/holes glow a bit
+    if boss_spawned and boss:
+        now = pygame.time.get_ticks()
+        for tg in getattr(boss, "telegraphs", []):
+            t = now - tg["time"]
+            rad = 70 if t < boss.hole_duration else 90
+            pygame.draw.circle(overlay, (0, 0, 0, 0), tg["rect"].center, rad)
+
+    surface.blit(overlay, (0, 0))
 
 def spawn_room():
     """Rebuilds the room, with optional enemies and (new) hole rooms and barrels."""
@@ -394,24 +506,29 @@ def spawn_room():
     current_holes = []
     if doorcount not in (10, 20) and random.random() < HOLE_ROOM_CHANCE:
         HOLE_ROOM = True
-        # Scale number of holes with progress, cap at 12
         n = min(12, 3 + doorcount // 5)
         for _ in range(n):
             x, y = safe_random_pos(140)
             current_holes.append(pygame.Rect(x - 75, y - 75, 150, 150))
 
-    # Decorative barrels: 60% chance per room, spawn 1–3
-    '''
-    if not HOLE_ROOM and random.random() < 0.6:
-        for _ in range(random.randint(1, 3)):
-            bx, by = safe_random_pos(0)
-            variant = random.randint(1,3)
-            b = Barrel(bx, by, variant)
-            barrels.add(b)
-'''
+    # Decorative barrels (optional)
+    # if not HOLE_ROOM and random.random() < 0.6:
+    #     for _ in range(random.randint(1, 3)):
+    #         bx, by = safe_random_pos(0)
+    #         variant = random.randint(1,3)
+    #         b = Barrel(bx, by, variant)
+    #         barrels.add(b)
+    #         all_sprites.add(b)
+
     # Special rest room
     if doorcount == 10:
         return
+    # ---- Roll a dark room inside spawn_room() (add after HOLE_ROOM logic) ----
+    global DARK_ROOM
+    if doorcount not in (10, 20):   # skip rest/big-wave if you want
+        DARK_ROOM = (random.random() < DARK_ROOM_CHANCE)
+    else:
+        DARK_ROOM = False
 
     # Big mixed wave
     if doorcount == 20 and not boss_defeated:
@@ -436,33 +553,37 @@ def spawn_room():
     if doorcount > 12 and random.random() < 0.6:
         p = PurpleCube(*safe_random_pos(240)); cubes.add(p); all_sprites.add(p)
 
-
 def open_door_if_clear(keys):
     if door and not door.opened and player.rect.colliderect(door.rect) and keys[pygame.K_e]:
         door.opened = True
-
 
 def go_through_door_if_touching():
     global doorcount, boss_spawned, boss
     if door and door.opened and player.rect.colliderect(door.rect):
         if len(cubes) == 0:
-            doorcount += 1
-            player.shield_intact = True
-            player.rect.center = (SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
-            if doorcount == 10:
-                player.hp = min(player.max_hp, player.hp+2); player.shield_intact = True
-            if doorcount == 21:
-                player.hp = min(player.max_hp, player.hp+2); player.shield_intact = True
-            # decide boss spawn after rebuild
-            spawn_boss_now = (doorcount == 30 and not boss_spawned and not boss_defeated)
-            spawn_room()
-            if spawn_boss_now:
-                boss = Boss(200, 200)
-                boss_spawned = True
-                all_sprites.add(boss)
+            if boss_defeated or not(boss_spawned):
+                doorcount += 1
+                player.rect.center = (SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
+                if doorcount == 10:
+                    player.hp = min(player.max_hp, player.hp+2); player.shield_intact = True
+                if doorcount == 21:
+                    player.hp = min(player.max_hp, player.hp+2); player.shield_intact = True
+                # decide boss spawn after rebuild
+                spawn_boss_now = (doorcount == 30 and not boss_spawned and not boss_defeated)
+                spawn_room()
+                # apply skills & blessing each new room
+                skill_effects_apply_to_player()
+                grant_skill_point_if_needed()
+                apply_room_blessing()
+                if spawn_boss_now:
+                    boss = Boss(200, 200)
+                    boss_spawned = True
+                    all_sprites.add(boss)
 
 # first room
 spawn_room()
+skill_effects_apply_to_player()
+apply_room_blessing()
 
 # ------------------------------
 # UI helpers
@@ -475,7 +596,10 @@ def draw_hearts(surf, x, y, hp, max_hp):
 
 def draw_help_panel(surf):
     if not show_help: return
-    lines = ["WASD move, Space attack, 1-4 weapon", "E open door, P pause, H help"]
+    lines = [
+        "WASD move, Space attack, 1-4 weapon",
+        "E open door, P pause, H help, T skill tree",
+    ]
     for i, line in enumerate(lines):
         surf.blit(font_small.render(line, True, (220,220,220)), (20, SCREEN_HEIGHT - 60 + i*18))
 
@@ -506,66 +630,94 @@ while running:
                 player.rect.center = (SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
                 player.hp = player.max_hp; player.shield_intact = True; player.i_frames = 0
                 doorcount = 0; boss_spawned = False; boss = None
+                skill_points = 0
+                for k in skills: skills[k]["lvl"] = 0
                 spawn_room(); state = STATE_PLAY
+                skill_effects_apply_to_player()
+                apply_room_blessing()
             elif state == STATE_PLAY:
                 if event.key == pygame.K_p: state = STATE_PAUSE
                 if event.key == pygame.K_h: show_help = not show_help
+                if event.key == pygame.K_t: skill_menu_open = not skill_menu_open
+                # purchase skills (1-5) while menu open
+                if skill_menu_open and event.unicode in ("1","2","3","4","5"):
+                    idx = int(event.unicode) - 1
+                    ids = list(skills.keys())
+                    if 0 <= idx < len(ids):
+                        sid = ids[idx]
+                        s = skills[sid]
+                        if s["lvl"] < s["max"] and skill_points >= s["cost"]:
+                            s["lvl"] += 1
+                            skill_points -= s["cost"]
+                            old_hp = player.hp
+                            skill_effects_apply_to_player()
+                            if player.hp > old_hp:
+                                set_room_message("Max HP up!", 1.4)
             elif state == STATE_PAUSE and event.key == pygame.K_p:
                 state = STATE_PLAY
 
     keys = pygame.key.get_pressed()
 
     if state == STATE_PLAY:
-        player.handle_input(); player.i_frames = max(0.0, player.i_frames - dt)
-        for e in list(cubes): e.update(player.rect.center)
+        # update on-screen message timer
+        if room_message_timer > 0:
+            room_message_timer = max(0.0, room_message_timer - dt)
 
-        # Boss logic
-        if boss_spawned and boss:
-            boss.update(player.rect.center)
-            # damage from any active boss hole just as it appears
-            for tg in getattr(boss, 'telegraphs', []):
-                t = pygame.time.get_ticks() - tg['time']
-                if boss.hole_duration <= t <= boss.hole_duration + 200:
-                    if player.rect.colliderect(tg['rect']):
+        if skill_menu_open:
+            # Freeze combat while the menu is open (still draw world/UI below)
+            player.i_frames = max(0.0, player.i_frames - dt)
+        else:
+            player.handle_input(); player.i_frames = max(0.0, player.i_frames - dt)
+            for e in list(cubes): e.update(player.rect.center)
+
+            # Boss logic
+            if boss_spawned and boss:
+                boss.update(player.rect.center)
+                # damage from any active boss hole (permanently active after it appears)
+                for tg in getattr(boss, 'telegraphs', []):
+                    t = pygame.time.get_ticks() - tg['time']
+                    if t >= boss.hole_duration:  # hole is now active and stays active
+                        if player.rect.colliderect(tg['rect']):
+                            player.damage(1)
+                            if player.hp <= 0:
+                                state = STATE_GAMEOVER
+                if boss.rect.colliderect(player.rect):
+                    k = pygame.Vector2(player.rect.center) - boss.rect.center
+                    if k.length_squared(): k.scale_to_length(24)
+                    player.damage(1, knockback=k)
+                    if player.hp <= 0: state = STATE_GAMEOVER
+
+            for a in list(attacks): a.update()
+
+            # piercing collisions (no a.kill() on hit)
+            for a in list(attacks):
+                hit_rect = a.rect.inflate(getattr(a, 'hit_inflate', 0), getattr(a, 'hit_inflate', 0))
+                for e in [e for e in cubes if hit_rect.colliderect(e.rect)]:
+                    e.hp -= getattr(a, 'damage', 12); zombie_hit_sound.play()
+                    if e.hp <= 0: e.kill()
+                if boss_spawned and boss and hit_rect.colliderect(boss.rect):
+                    boss.health -= getattr(a, 'damage', 12)
+                    if boss.health <= 0:
+                        boss.kill(); boss_spawned = False
+
+            for e in list(cubes):
+                if e.rect.colliderect(player.rect):
+                    k = pygame.Vector2(player.rect.center) - e.rect.center
+                    if k.length_squared(): k.scale_to_length(24)
+                    player.damage(1, knockback=k)
+                    if player.hp <= 0: state = STATE_GAMEOVER
+
+            # Hole room collision — deal 1 damage instead of instant death
+            if HOLE_ROOM:
+                for r in current_holes:
+                    if player.rect.colliderect(r):
                         player.damage(1)
-                        if player.hp <= 0: state = STATE_GAMEOVER
-            if boss.rect.colliderect(player.rect):
-                k = pygame.Vector2(player.rect.center) - boss.rect.center
-                if k.length_squared(): k.scale_to_length(24)
-                player.damage(1, knockback=k)
-                if player.hp <= 0: state = STATE_GAMEOVER
+                        if player.hp <= 0:
+                            state = STATE_GAMEOVER
+                        break
 
-        for a in list(attacks): a.update()
-
-        # piercing collisions (no a.kill() on hit)
-        for a in list(attacks):
-            hit_rect = a.rect.inflate(getattr(a, 'hit_inflate', 0), getattr(a, 'hit_inflate', 0))
-            for e in [e for e in cubes if hit_rect.colliderect(e.rect)]:
-                e.hp -= getattr(a, 'damage', 12); zombie_hit_sound.play()
-                if e.hp <= 0: e.kill()
-            if boss_spawned and boss and hit_rect.colliderect(boss.rect):
-                boss.health -= getattr(a, 'damage', 12)
-                if boss.health <= 0:
-                    boss.kill(); boss_spawned = False
-
-        for e in list(cubes):
-            if e.rect.colliderect(player.rect):
-                k = pygame.Vector2(player.rect.center) - e.rect.center
-                if k.length_squared(): k.scale_to_length(24)
-                player.damage(1, knockback=k)
-                if player.hp <= 0: state = STATE_GAMEOVER
-
-        # Hole room collision — deal 1 damage instead of instant death
-        if HOLE_ROOM:
-            for r in current_holes:
-                if player.rect.colliderect(r):
-                    player.damage(1)
-                    if player.hp <= 0:
-                        state = STATE_GAMEOVER
-                    break
-
-        open_door_if_clear(keys)
-        if door and door.opened and player.rect.colliderect(door.rect): go_through_door_if_touching()
+            open_door_if_clear(keys)
+            if door and door.opened and player.rect.colliderect(door.rect): go_through_door_if_touching()
 
     # draw
     screen.fill((50,50,55))
@@ -612,7 +764,7 @@ while running:
         if door: world.blit(door.image, door.rect)
 
         screen.blit(world, (0,0))
-
+        draw_darkness(screen)
         # UI
         draw_hearts(screen, 20, 20, player.hp, player.max_hp)
         img = {"wooden":wooden_sword_img, "katana":katana_img, "big":greatsword_img, "bow":bow_img}[player.weapon]
@@ -625,7 +777,15 @@ while running:
             screen.blit(shield_img, shield_img.get_rect(bottomright=(SCREEN_WIDTH-20, SCREEN_HEIGHT-20)))
         room_txt = font.render(f"Room: {doorcount}", True, (255,255,255))
         screen.blit(room_txt, (SCREEN_WIDTH//2 - room_txt.get_width()//2, 14))
+
+        # Room blessing message (top-center)
+        if room_message_timer > 0 and room_message:
+            msgsurf = font.render(room_message, True, (230, 230, 120))
+            screen.blit(msgsurf, msgsurf.get_rect(midtop=(SCREEN_WIDTH//2, 48)))
+
         draw_help_panel(screen)
+
+        # Pause/Game over overlays
         if state == STATE_PAUSE:
             p = font_big.render("PAUSED", True, (255,255,255))
             screen.blit(p, p.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2)))
@@ -634,6 +794,10 @@ while running:
             screen.blit(g, g.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 10)))
             s = font.render(f"Room Score: {doorcount}  —  Press R to Restart", True, (230,230,230))
             screen.blit(s, s.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 40)))
+
+        # Skill menu overlay (draw last)
+        if skill_menu_open:
+            draw_skill_menu(screen)
 
     pygame.display.flip()
 
