@@ -95,6 +95,7 @@ except Exception:
 zombie_hit_sound = try_load_sound("zombie_hit.wav")
 slash_sound      = try_load_sound("slash_sound.wav")
 
+shooter_cube_img= pygame.Surface((30,30)); shooter_cube_img.fill((255,200,0))
 blue_cube_img   = pygame.Surface((30,30)); blue_cube_img.fill((0,120,255))
 green_cube_img  = pygame.Surface((30,30)); green_cube_img.fill((0,200,100))
 red_cube_img    = pygame.Surface((30,30)); red_cube_img.fill((220,60,60))
@@ -102,7 +103,7 @@ purple_cube_img = pygame.Surface((30,30)); purple_cube_img.fill((160,60,200))
 
 # ---- Dark Room / Fog-of-War settings (put near other globals) ----
 DARK_ROOM = False
-DARK_ROOM_CHANCE = 0.30     # % of rooms that are dark
+DARK_ROOM_CHANCE = 0.25    # % of rooms that are dark
 BASE_DARK_ALPHA = 240       # overlay opacity (0..255)
 PLAYER_LIGHT_RADIUS = 115   # player vision radius
 ENEMY_LIGHT_RADIUS  = 80    # small halos on enemies
@@ -346,6 +347,55 @@ class Boss(pygame.sprite.Sprite):
                 surf.blit(warning_img, warning_img.get_rect(center=tg["rect"].center))
             else:
                 surf.blit(hole_img, tg["rect"])
+class EnemyBullet(pygame.sprite.Sprite):
+    def __init__(self, x, y, target_pos, speed=8, damage=1, lifetime=2500):
+        super().__init__()
+        self.image = pygame.Surface((10,10), pygame.SRCALPHA)
+        pygame.draw.circle(self.image, (255,180,70), (5,5), 5)
+        self.rect = self.image.get_rect(center=(x, y))
+        v = pygame.Vector2(target_pos) - pygame.Vector2(x, y)
+        self.vel = v.normalize() * speed if v.length_squared() else pygame.Vector2(0,0)
+        self.damage = damage
+        self.spawn_time = pygame.time.get_ticks()
+        self.lifetime = lifetime
+    def update(self):
+        self.rect.centerx += int(self.vel.x)
+        self.rect.centery += int(self.vel.y)
+        if (self.rect.right < -20 or self.rect.left > SCREEN_WIDTH+20 or
+            self.rect.bottom < -20 or self.rect.top > SCREEN_HEIGHT+20 or
+            pygame.time.get_ticks() - self.spawn_time > self.lifetime):
+            self.kill()
+
+class ShooterCube(Cube):
+    def __init__(self, x, y):
+        super().__init__(shooter_cube_img, x, y, hp=1, speed=(2.4, 3.1))
+        self.min_range = 180
+        self.max_range = 420
+        self.last_shot = 0
+        self.shoot_cd_ms = random.randint(1700, 2300)
+        self.burst_chance = 0.25
+        self.speed -=1.5
+    def update(self, target_pos):
+        to_player = pygame.Vector2(target_pos) - pygame.Vector2(self.rect.center)
+        if to_player.length_squared() == 0:
+            return
+        dist = to_player.length()
+        dir_vec = to_player.normalize()
+        if dist < self.min_range:
+            move = -dir_vec * self.speed
+        elif dist > self.max_range:
+            move = dir_vec * self.speed
+        else:
+            perp = pygame.Vector2(-dir_vec.y, dir_vec.x) * random.uniform(-1, 1) * 0.6
+            move = perp
+        self.rect.centerx = int(self.rect.centerx + move.x)
+        self.rect.centery = int(self.rect.centery + move.y)
+        now = pygame.time.get_ticks()
+        if now - self.last_shot >= self.shoot_cd_ms:
+            enemy_projectiles.add(EnemyBullet(self.rect.centerx, self.rect.centery, target_pos))
+            self.last_shot = now
+            if random.random() < self.burst_chance:
+                enemy_projectiles.add(EnemyBullet(self.rect.centerx, self.rect.centery, target_pos))
 
 # Decorative Barrels
 class Barrel(pygame.sprite.Sprite):
@@ -367,6 +417,7 @@ all_sprites = pygame.sprite.Group()
 attacks = pygame.sprite.Group()
 cubes = pygame.sprite.Group()
 barrels = pygame.sprite.Group()  # decorations
+enemy_projectiles = pygame.sprite.Group()
 
 player = Player(SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
 all_sprites.add(player)
@@ -402,7 +453,6 @@ def skill_effects_apply_to_player():
     """Recompute derived stats from skills."""
     player.max_hp = 5 + skills["maxhp"]["lvl"]
     player.hp = min(player.hp, player.max_hp)
-
     speed_mult = 1.0 + 0.06 * skills["speed"]["lvl"]
     player.speed = 5.2 * speed_mult
 
@@ -421,7 +471,7 @@ def set_room_message(text, seconds=2.0):
 
 def apply_room_blessing():
     healed = False
-    if random.random() < 0.5 and player.hp < player.max_hp:
+    if random.random() < 0.3 and player.hp < player.max_hp:
         player.hp += 1
         healed = True
 
@@ -549,10 +599,15 @@ def spawn_room():
         for _ in range(random.randint(0, 1 + doorcount//10)):
             g = GreenCube(*safe_random_pos(220)); cubes.add(g); all_sprites.add(g)
     if doorcount > 8 and random.random() < 0.5:
-        r = RedCube(*safe_random_pos(240)); cubes.add(r); all_sprites.add(r)
+        for _ in range(random.randint(0, 1 + doorcount//15)):
+            r = RedCube(*safe_random_pos(240)); cubes.add(r); all_sprites.add(r)
     if doorcount > 12 and random.random() < 0.6:
-        p = PurpleCube(*safe_random_pos(240)); cubes.add(p); all_sprites.add(p)
-
+        for _ in range(random.randint(0, 1 + doorcount//12)):
+            p = PurpleCube(*safe_random_pos(240)); cubes.add(p); all_sprites.add(p)
+    if doorcount > 12:
+        for _ in range(random.randint(1, 1 + doorcount//25)):
+            s = ShooterCube(*safe_random_pos(220))
+            cubes.add(s); all_sprites.add(s)
 def open_door_if_clear(keys):
     if door and not door.opened and player.rect.colliderect(door.rect) and keys[pygame.K_e]:
         door.opened = True
@@ -562,7 +617,7 @@ def go_through_door_if_touching():
     if door and door.opened and player.rect.colliderect(door.rect):
         if len(cubes) == 0:
             if boss_defeated or not(boss_spawned):
-                doorcount += 1
+                doorcount += 30
                 player.rect.center = (SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
                 if doorcount == 10:
                     player.hp = min(player.max_hp, player.hp+2); player.shield_intact = True
@@ -653,6 +708,8 @@ while running:
                             skill_effects_apply_to_player()
                             if player.hp > old_hp:
                                 set_room_message("Max HP up!", 1.4)
+
+
             elif state == STATE_PAUSE and event.key == pygame.K_p:
                 state = STATE_PLAY
 
@@ -706,7 +763,13 @@ while running:
                     if k.length_squared(): k.scale_to_length(24)
                     player.damage(1, knockback=k)
                     if player.hp <= 0: state = STATE_GAMEOVER
-
+            for b in list(enemy_projectiles):
+                b.update()
+                if b.rect.colliderect(player.rect):
+                    player.damage(getattr(b, "damage", 1))
+                    b.kill()
+                    if player.hp <= 0:
+                        state = STATE_GAMEOVER
             # Hole room collision — deal 1 damage instead of instant death
             if HOLE_ROOM:
                 for r in current_holes:
@@ -749,7 +812,8 @@ while running:
         for e in cubes:
             world.blit(e.image, e.image.get_rect(center=e.rect.center))
             if isinstance(e, (GreenCube, RedCube, PurpleCube)): e.draw(world)
-
+        for b in enemy_projectiles:
+            world.blit(b.image, b.rect)
         # Boss
         if boss_spawned and boss:
             boss.draw(world)
